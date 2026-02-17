@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySession } from "@/lib/auth";
+import { verifySession, verifyToken } from "@/lib/auth";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
 
 // POST /api/upload - Upload file (images, PDFs, etc.)
 export async function POST(req: NextRequest) {
-  const session = await verifySession();
+  const token = req.cookies.get("auth_token")?.value;
+  const session = (token && await verifyToken(token)) || await verifySession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

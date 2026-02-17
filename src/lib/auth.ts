@@ -41,6 +41,16 @@ export async function clearAuthCookie(): Promise<void> {
   cookieStore.delete(COOKIE_NAME);
 }
 
+export async function verifyToken(token: string): Promise<{ email: string } | null> {
+  if (!token) return null;
+  try {
+    const verified = await jwtVerify(token, SECRET_KEY);
+    return verified.payload as { email: string };
+  } catch {
+    return null;
+  }
+}
+
 export async function verifySession(): Promise<{ email: string } | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
@@ -49,10 +59,5 @@ export async function verifySession(): Promise<{ email: string } | null> {
     return null;
   }
 
-  try {
-    const verified = await jwtVerify(token, SECRET_KEY);
-    return verified.payload as { email: string };
-  } catch {
-    return null;
-  }
+  return verifyToken(token);
 }
