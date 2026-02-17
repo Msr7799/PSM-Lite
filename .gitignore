@@ -47,3 +47,5 @@ next-env.d.ts
 
 # myData
 myData/*
+DATA.HTML
+HOTEL_REPORT.md
