@@ -70,7 +70,7 @@ export async function POST(req: Request) {
       minNights: parsed.data.minNights ?? 1,
       maxNights: parsed.data.maxNights ?? null,
       stopSell: parsed.data.stopSell ?? false,
-      daysOfWeek: parsed.data.daysOfWeek ?? null,
+      daysOfWeek: parsed.data.daysOfWeek ?? undefined,
       priority: parsed.data.priority ?? 0,
     },
   });

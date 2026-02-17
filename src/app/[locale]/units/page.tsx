@@ -41,6 +41,11 @@ export default async function UnitsPage() {
       ogImage: (cached as any)?.ogImage ?? null,
       ogTitle: (cached as any)?.ogTitle ?? null,
       bookingPublicUrl: listing?.publicUrl ?? null,
+      listings: u.channelListings.map((cl: any) => ({
+        id: cl.id,
+        channel: cl.channel,
+        url: cl.publicUrl ?? '',
+      })),
       feeds: u.feeds.map((f: any) => ({
         id: f.id,
         channel: f.channel,
