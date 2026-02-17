@@ -5,5 +5,9 @@ export default createMiddleware(routing);
 
 export const config = {
     // Match only internationalized pathnames
-    matcher: ['/', '/(ar|en)/:path*']
+    matcher: ['/', '/(ar|en)/:path*'],
+    // Skip middleware for static files and API routes
+    unstable_allowDynamic: [
+        '/node_modules/**',
+    ],
 };
