@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from 'next-intl';
+import { Facebook, Twitter, Instagram, Linkedin, Share2, Link as LinkIcon, Mail, Youtube } from "lucide-react";
 
 type Unit = { id: string; name: string };
 
@@ -55,6 +56,29 @@ type ContentState = {
     nearbyPlaces?: string;
     damageDeposit?: string;
     cancellationPolicy?: string;
+    socialShareLinks?: Record<string, string>;
+    socialProfiles?: Record<string, string>;
+    // Extended fields
+    propertyId?: string;
+    coordinates?: { lat: number; lng: number };
+    accommodationType?: string;
+    roomSize?: string;
+    bedroomCount?: number;
+    bathroomCount?: number;
+    checkInTime?: string;
+    checkOutTime?: string;
+    quietHours?: string;
+    minCheckInAge?: number;
+    smokingPolicy?: string;
+    petsPolicy?: string;
+    partiesPolicy?: string;
+    childrenPolicy?: string;
+    paymentMethods?: string;
+    hostName?: string;
+    hostJoinDate?: string;
+    finePrints?: string;
+    currency?: string;
+    nearbyPlacesDetailed?: Array<{ name: string; distance: string }>;
   } | null;
 };
 
@@ -76,6 +100,293 @@ function stringifyLines(items: string[]) {
   return (items ?? []).join("\n");
 }
 
+// ─── Unfurl types & helpers ────────────────────────────────────────
+
+type KV = { key: string; value: string; attr?: string };
+type LinkInfo = {
+  rel: string;
+  href: string;
+  type?: string;
+  sizes?: string;
+  title?: string;
+  hreflang?: string;
+  as?: string;
+  media?: string;
+};
+type ImageInfo = { url: string; from: string; score: number; width?: number; height?: number };
+type JsonLdInfo = { raw: string; parsed?: any; error?: string; types?: string[] };
+
+type UnfurlResult = {
+  url: { input?: string; base?: string; final?: string; canonical?: string };
+  page: { title?: string; description?: string; lang?: string };
+  social: { og: Record<string, string>; twitter: Record<string, string> };
+  meta: KV[];
+  links: LinkInfo[];
+  media: { images: ImageInfo[]; icons: string[] };
+  structured: { jsonld: JsonLdInfo[] };
+  text: { h1: string[]; h2: string[] };
+  raw: { preview?: any; htmlBytes?: number };
+};
+
+function safeUrl(u?: string | null, base?: string) {
+  const s = String(u ?? "").trim();
+  if (!s) return "";
+  try {
+    return new URL(s, base || undefined).toString();
+  } catch {
+    return s;
+  }
+}
+
+function uniq<T>(arr: T[]) {
+  return Array.from(new Set(arr));
+}
+
+function buildImageScore(from: string, url: string) {
+  let score = 0;
+  const u = url.toLowerCase();
+  if (from === "og:image") score += 100;
+  if (from === "twitter:image") score += 90;
+  if (from === "jsonld:image") score += 80;
+  if (from === "img") score += 60;
+  if (from === "link:image_src") score += 70;
+  if (u.includes("logo")) score -= 30;
+  if (u.includes("icon")) score -= 20;
+  if (u.includes("sprite")) score -= 20;
+  if (u.includes("large") || u.includes("original") || u.includes("full")) score += 10;
+  return score;
+}
+
+function extractAllFromHtml(html: string, sourceUrl?: string): UnfurlResult {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const baseHref =
+    sourceUrl ||
+    (doc.querySelector("base")?.getAttribute("href") ? safeUrl(doc.querySelector("base")?.getAttribute("href")) : "");
+
+  const og: Record<string, string> = {};
+  const twitter: Record<string, string> = {};
+  const meta: KV[] = [];
+
+  for (const m of Array.from(doc.querySelectorAll("meta"))) {
+    const content = (m.getAttribute("content") || "").trim();
+    if (!content) continue;
+    const prop = (m.getAttribute("property") || "").trim();
+    const name = (m.getAttribute("name") || "").trim();
+    const httpEquiv = (m.getAttribute("http-equiv") || "").trim();
+    const itemProp = (m.getAttribute("itemprop") || "").trim();
+    const key = prop || name || httpEquiv || itemProp || "meta";
+    meta.push({ key, value: content });
+    const k = key.toLowerCase();
+    if (k.startsWith("og:")) og[k] = content;
+    if (k.startsWith("twitter:")) twitter[k] = content;
+  }
+
+  const links: LinkInfo[] = [];
+  const icons: string[] = [];
+  for (const l of Array.from(doc.querySelectorAll("link"))) {
+    const rel = (l.getAttribute("rel") || "").trim();
+    const hrefRaw = (l.getAttribute("href") || "").trim();
+    if (!hrefRaw) continue;
+    const href = safeUrl(hrefRaw, baseHref);
+    links.push({
+      rel: rel || "link",
+      href,
+      type: (l.getAttribute("type") || "").trim() || undefined,
+      sizes: (l.getAttribute("sizes") || "").trim() || undefined,
+      title: (l.getAttribute("title") || "").trim() || undefined,
+      hreflang: (l.getAttribute("hreflang") || "").trim() || undefined,
+      as: (l.getAttribute("as") || "").trim() || undefined,
+      media: (l.getAttribute("media") || "").trim() || undefined,
+    });
+    if (rel.toLowerCase().includes("icon")) icons.push(href);
+  }
+
+  const jsonld: JsonLdInfo[] = [];
+  for (const s of Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))) {
+    const raw = (s.textContent || "").trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      const types: string[] = [];
+      const digType = (x: any) => {
+        if (!x) return;
+        const t = x["@type"];
+        if (typeof t === "string") types.push(t);
+        if (Array.isArray(t)) for (const z of t) if (typeof z === "string") types.push(z);
+      };
+      if (Array.isArray(parsed)) parsed.forEach(digType);
+      else digType(parsed);
+      jsonld.push({ raw, parsed, types: uniq(types) });
+    } catch (e: any) {
+      jsonld.push({ raw, error: String(e?.message || e) });
+    }
+  }
+
+  const imgCandidates: ImageInfo[] = [];
+  const ogImg = og["og:image"] || og["og:image:url"] || "";
+  if (ogImg) imgCandidates.push({ url: safeUrl(ogImg, baseHref), from: "og:image", score: buildImageScore("og:image", ogImg) });
+  const twImg = twitter["twitter:image"] || twitter["twitter:image:src"] || "";
+  if (twImg) imgCandidates.push({ url: safeUrl(twImg, baseHref), from: "twitter:image", score: buildImageScore("twitter:image", twImg) });
+  for (const li of links) {
+    if (li.rel.toLowerCase().includes("image_src")) {
+      imgCandidates.push({ url: li.href, from: "link:image_src", score: buildImageScore("link:image_src", li.href) });
+    }
+  }
+  const pullJsonldImages = (obj: any) => {
+    if (!obj) return;
+    const img = obj.image;
+    const add = (v: any) => {
+      if (!v) return;
+      if (typeof v === "string") imgCandidates.push({ url: safeUrl(v, baseHref), from: "jsonld:image", score: buildImageScore("jsonld:image", v) });
+      else if (typeof v === "object" && typeof v.url === "string") imgCandidates.push({ url: safeUrl(v.url, baseHref), from: "jsonld:image", score: buildImageScore("jsonld:image", v.url) });
+    };
+    if (Array.isArray(img)) img.forEach(add);
+    else add(img);
+  };
+  for (const j of jsonld) {
+    if (j.parsed) {
+      if (Array.isArray(j.parsed)) j.parsed.forEach(pullJsonldImages);
+      else pullJsonldImages(j.parsed);
+    }
+  }
+  for (const img of Array.from(doc.images || [])) {
+    const src = (img.getAttribute("src") || "").trim();
+    const srcset = (img.getAttribute("srcset") || "").trim();
+    const w = Number(img.getAttribute("width") || "") || undefined;
+    const h = Number(img.getAttribute("height") || "") || undefined;
+    if (src) {
+      imgCandidates.push({ url: safeUrl(src, baseHref), from: "img", score: buildImageScore("img", src), width: w, height: h });
+    }
+    if (srcset) {
+      for (const p of srcset.split(",").map((x) => x.trim()).filter(Boolean)) {
+        const u = p.split(/\s+/)[0];
+        if (u) imgCandidates.push({ url: safeUrl(u, baseHref), from: "img", score: buildImageScore("img", u) - 5 });
+      }
+    }
+  }
+
+  const bestByUrl = new Map<string, ImageInfo>();
+  for (const it of imgCandidates) {
+    const u = it.url.trim();
+    if (!u) continue;
+    const prev = bestByUrl.get(u);
+    if (!prev || it.score > prev.score) bestByUrl.set(u, it);
+  }
+  const images = Array.from(bestByUrl.values()).sort((a, b) => b.score - a.score);
+
+  const canonical = links.find((x) => x.rel.toLowerCase().split(/\s+/).includes("canonical"))?.href || og["og:url"] || "";
+  const title = og["og:title"] || twitter["twitter:title"] || (doc.querySelector("title")?.textContent || "").trim() || "";
+  const desc = og["og:description"] || twitter["twitter:description"] || meta.find((x) => x.key.toLowerCase() === "description")?.value || "";
+  const h1 = Array.from(doc.querySelectorAll("h1")).map((x) => (x.textContent || "").trim()).filter(Boolean);
+  const h2 = Array.from(doc.querySelectorAll("h2")).map((x) => (x.textContent || "").trim()).filter(Boolean);
+
+  return {
+    url: { input: sourceUrl, base: baseHref || undefined, canonical: canonical || undefined, final: sourceUrl || undefined },
+    page: { title: title || undefined, description: desc || undefined, lang: (doc.documentElement.getAttribute("lang") || "").trim() || undefined },
+    social: { og, twitter },
+    meta,
+    links,
+    media: { images, icons: uniq(icons) },
+    structured: { jsonld },
+    text: { h1, h2 },
+    raw: { htmlBytes: html.length },
+  };
+}
+
+function buildUnfurlFromPreview(preview: any, inputUrl?: string): UnfurlResult {
+  const html = String(preview?.html || preview?.rawHtml || "").trim();
+  if (html) {
+    const extracted = extractAllFromHtml(html, inputUrl);
+    return { ...extracted, raw: { ...extracted.raw, preview } };
+  }
+
+  const og: Record<string, string> = {};
+  const twitter: Record<string, string> = {};
+  const meta: KV[] = [];
+  const links: LinkInfo[] = [];
+  const icons: string[] = [];
+
+  const put = (k: string, v: any) => {
+    const val = String(v ?? "").trim();
+    if (!val) return;
+    meta.push({ key: k, value: val });
+    const kl = k.toLowerCase();
+    if (kl.startsWith("og:")) og[kl] = val;
+    if (kl.startsWith("twitter:")) twitter[kl] = val;
+  };
+
+  put("og:title", preview?.ogTitle);
+  put("og:description", preview?.ogDesc);
+  put("og:image", preview?.ogImage);
+  put("og:url", preview?.ogUrl || inputUrl);
+  put("twitter:title", preview?.twitterTitle);
+  put("twitter:description", preview?.twitterDesc);
+  put("twitter:image", preview?.twitterImage);
+
+  const pm = preview?.meta;
+  if (Array.isArray(pm)) {
+    for (const it of pm) {
+      if (it && typeof it === "object" && it.key && it.value) put(String(it.key), String(it.value));
+    }
+  } else if (pm && typeof pm === "object") {
+    for (const [k, v] of Object.entries(pm)) put(String(k), String(v));
+  }
+
+  const imgs: string[] = [];
+  if (Array.isArray(preview?.images)) imgs.push(...preview.images.map((x: any) => String(x)));
+  if (preview?.ogImage) imgs.push(String(preview.ogImage));
+
+  const images: ImageInfo[] = uniq(imgs.map((x) => safeUrl(x, inputUrl))).filter(Boolean).map((u, i) => ({
+    url: u,
+    from: i === 0 ? "og:image" : "img",
+    score: buildImageScore(i === 0 ? "og:image" : "img", u),
+  })).sort((a, b) => b.score - a.score);
+
+  const canonical = preview?.canonical ? safeUrl(preview.canonical, inputUrl) : (og["og:url"] || "");
+
+  return {
+    url: { input: inputUrl, canonical: canonical || undefined, final: inputUrl },
+    page: { title: (preview?.ogTitle || preview?.title || "").trim() || undefined, description: (preview?.ogDesc || "").trim() || undefined, lang: preview?.lang || undefined },
+    social: { og, twitter },
+    meta,
+    links,
+    media: { images, icons },
+    structured: { jsonld: [] },
+    text: { h1: [], h2: [] },
+    raw: { preview },
+  };
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function paginate<T>(items: T[], page: number, pageSize: number) {
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const p = clamp(page, 1, pages);
+  const start = (p - 1) * pageSize;
+  return { page: p, pages, total, slice: items.slice(start, start + pageSize) };
+}
+
+function safeJson(obj: any) {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj);
+  }
+}
+
+async function copyToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Component ─────────────────────────────────────────────────────
 
 export default function ContentClient({ units }: { units: Unit[] }) {
   const t = useTranslations();
@@ -99,6 +410,13 @@ export default function ContentClient({ units }: { units: Unit[] }) {
   const [showPasteHtml, setShowPasteHtml] = useState(false);
   const [pastedHtml, setPastedHtml] = useState("");
 
+  const [unfurl, setUnfurl] = useState<UnfurlResult | null>(null);
+  const [showUnfurl, setShowUnfurl] = useState(false);
+  const [unfurlTab, setUnfurlTab] = useState<"summary" | "images" | "meta" | "links" | "jsonld" | "raw">("summary");
+  const [unfurlSearch, setUnfurlSearch] = useState("");
+  const [unfurlPage, setUnfurlPage] = useState(1);
+  const [unfurlPageSize, setUnfurlPageSize] = useState(25);
+
   const [state, setState] = useState<ContentState | null>(null);
 
   const stateRef = useRef<ContentState | null>(null);
@@ -109,6 +427,11 @@ export default function ContentClient({ units }: { units: Unit[] }) {
 
   useEffect(() => {
     if (!unitId) return;
+    setUnfurl(null);
+    setShowUnfurl(false);
+    setUnfurlTab("summary");
+    setUnfurlSearch("");
+    setUnfurlPage(1);
     load(unitId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unitId]);
@@ -237,18 +560,29 @@ export default function ContentClient({ units }: { units: Unit[] }) {
         const res = await fetch(`/api/units/${unitId}/primary-link`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ publicUrl: url, forcePreview: true }),
+          body: JSON.stringify({ publicUrl: url, forcePreview: true, includeHtml: true, includeHeaders: true }),
         });
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          // Server-side scraping failed (challenge page, etc.) → show paste fallback
           setMsg(t("scrape_failed_paste_fallback"));
           setShowPasteHtml(true);
           return;
         }
 
         const p = data?.preview;
+        if (p) {
+          try {
+            const full = buildUnfurlFromPreview(p, url);
+            setUnfurl(full);
+            setShowUnfurl(true);
+            setUnfurlTab("summary");
+            setUnfurlSearch("");
+            setUnfurlPage(1);
+          } catch {
+            // ignore unfurl errors
+          }
+        }
         const imgs =
           (p?.images && Array.isArray(p.images) ? p.images : []) as string[];
         const det = p?.details ?? {};
@@ -269,6 +603,8 @@ export default function ContentClient({ units }: { units: Unit[] }) {
           nearbyPlaces: det.nearbyPlaces ?? undefined,
           damageDeposit: det.damageDeposit ?? undefined,
           cancellationPolicy: det.cancellationPolicy ?? undefined,
+          socialShareLinks: det.socialShareLinks ?? undefined,
+          socialProfiles: det.socialProfiles ?? undefined,
         };
 
         // Check if we got meaningful data or just empty/challenge response
@@ -333,6 +669,18 @@ export default function ContentClient({ units }: { units: Unit[] }) {
       }
 
       const p = data?.preview;
+      try {
+        const full = extractAllFromHtml(pastedHtml, importUrl.trim() || undefined);
+        (full as any).raw = { ...(full as any).raw, preview: p };
+        setUnfurl(full);
+        setShowUnfurl(true);
+        setUnfurlTab("summary");
+        setUnfurlSearch("");
+        setUnfurlPage(1);
+      } catch {
+        // ignore unfurl errors
+      }
+
       const det = p?.details ?? {};
       const imgs = Array.isArray(p?.images) ? p.images : [];
 
@@ -352,6 +700,8 @@ export default function ContentClient({ units }: { units: Unit[] }) {
         nearbyPlaces: det.nearbyPlaces ?? undefined,
         damageDeposit: det.damageDeposit ?? undefined,
         cancellationPolicy: det.cancellationPolicy ?? undefined,
+        socialShareLinks: det.socialShareLinks ?? undefined,
+        socialProfiles: det.socialProfiles ?? undefined,
       };
 
       if (!ext.title && !ext.description && ext.images.length === 0) {
@@ -404,6 +754,40 @@ export default function ContentClient({ units }: { units: Unit[] }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftSnap, unitId, busy]);
+
+  useEffect(() => {
+    setUnfurlPage(1);
+  }, [unfurlTab, unfurlSearch, unfurlPageSize]);
+
+  function setMainImageInMaster(url: string) {
+    if (!state) return;
+    const u = String(url || "").trim();
+    if (!u) return;
+    const next = [u, ...(state.master.images || []).filter((x) => x !== u)];
+    setState({ ...state, master: { ...state.master, images: next } });
+    setMsg("تم تعيين الصورة الرئيسية ✅");
+  }
+
+  function replaceMasterImagesFromUnfurl(urls: string[]) {
+    if (!state) return;
+    const cleaned = uniq((urls || []).map((x) => String(x).trim()).filter(Boolean));
+    if (cleaned.length === 0) return;
+    setState({ ...state, master: { ...state.master, images: cleaned } });
+    setMsg(`تم تحديث الصور (${cleaned.length}) ✅`);
+  }
+
+  function moveMasterImage(index: number, dir: -1 | 1) {
+    if (!state) return;
+    const arr = [...(state.master.images || [])];
+    if (index < 0 || index >= arr.length) return;
+    const j = index + dir;
+    if (j < 0 || j >= arr.length) return;
+    const tmp = arr[index];
+    arr[index] = arr[j];
+    arr[j] = tmp;
+    setState({ ...state, master: { ...state.master, images: arr } });
+  }
+
   if (!unitId) {
     return <div className="text-sm text-slate-600 dark:text-slate-400">{t('no_units')}</div>;
   }
@@ -589,7 +973,98 @@ export default function ContentClient({ units }: { units: Unit[] }) {
                 <div className="mt-0.5 text-slate-800 dark:text-slate-200 line-clamp-2">{state.externalData.propertyHighlights}</div>
               </div>
             )}
+            {state.externalData.accommodationType && (
+              <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2">
+                <div className="font-medium text-slate-500 dark:text-slate-400">نوع العقار</div>
+                <div className="mt-0.5 text-slate-800 dark:text-slate-200">{state.externalData.accommodationType}</div>
+              </div>
+            )}
+            {state.externalData.propertyId && (
+              <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2">
+                <div className="font-medium text-slate-500 dark:text-slate-400">رقم العقار</div>
+                <div className="mt-0.5 text-slate-800 dark:text-slate-200">{state.externalData.propertyId}</div>
+              </div>
+            )}
+            {state.externalData.currency && (
+              <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2">
+                <div className="font-medium text-slate-500 dark:text-slate-400">العملة</div>
+                <div className="mt-0.5 text-slate-800 dark:text-slate-200">{state.externalData.currency}</div>
+              </div>
+            )}
+            {state.externalData.roomSize && (
+              <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2">
+                <div className="font-medium text-slate-500 dark:text-slate-400">المساحة</div>
+                <div className="mt-0.5 text-slate-800 dark:text-slate-200">{state.externalData.roomSize}</div>
+              </div>
+            )}
+            {(state.externalData.bedroomCount || state.externalData.bathroomCount) && (
+              <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2">
+                <div className="font-medium text-slate-500 dark:text-slate-400">الغرف / الحمامات</div>
+                <div className="mt-0.5 text-slate-800 dark:text-slate-200">
+                  {state.externalData.bedroomCount ? `${state.externalData.bedroomCount} غرف نوم` : ""}
+                  {state.externalData.bedroomCount && state.externalData.bathroomCount ? " · " : ""}
+                  {state.externalData.bathroomCount ? `${state.externalData.bathroomCount} حمام` : ""}
+                </div>
+              </div>
+            )}
+            {state.externalData.coordinates && (
+              <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2">
+                <div className="font-medium text-slate-500 dark:text-slate-400">الإحداثيات</div>
+                <div className="mt-0.5 text-slate-800 dark:text-slate-200">
+                  <a href={`https://www.google.com/maps?q=${state.externalData.coordinates.lat},${state.externalData.coordinates.lng}`} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+                    {state.externalData.coordinates.lat.toFixed(6)}, {state.externalData.coordinates.lng.toFixed(6)} 📍
+                  </a>
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* ── Policy Details ── */}
+          {(state.externalData.smokingPolicy || state.externalData.petsPolicy || state.externalData.partiesPolicy || state.externalData.quietHours || state.externalData.minCheckInAge || state.externalData.childrenPolicy || state.externalData.paymentMethods) && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/30 p-3 text-xs space-y-2">
+              <div className="font-semibold text-amber-800 dark:text-amber-200">السياسات والقوانين التفصيلية</div>
+              <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                {state.externalData.checkInTime && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">🕐</span><span className="text-slate-700 dark:text-slate-300"><strong>تسجيل الوصول:</strong> {state.externalData.checkInTime}</span></div>
+                )}
+                {state.externalData.checkOutTime && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">🕐</span><span className="text-slate-700 dark:text-slate-300"><strong>تسجيل المغادرة:</strong> {state.externalData.checkOutTime}</span></div>
+                )}
+                {state.externalData.quietHours && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">🤫</span><span className="text-slate-700 dark:text-slate-300"><strong>ساعات الهدوء:</strong> {state.externalData.quietHours}</span></div>
+                )}
+                {state.externalData.minCheckInAge && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">🔞</span><span className="text-slate-700 dark:text-slate-300"><strong>أقل عمر:</strong> {state.externalData.minCheckInAge} سنة</span></div>
+                )}
+                {state.externalData.smokingPolicy && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">🚭</span><span className="text-slate-700 dark:text-slate-300"><strong>التدخين:</strong> {state.externalData.smokingPolicy}</span></div>
+                )}
+                {state.externalData.petsPolicy && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">🐾</span><span className="text-slate-700 dark:text-slate-300"><strong>الحيوانات:</strong> {state.externalData.petsPolicy}</span></div>
+                )}
+                {state.externalData.partiesPolicy && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">🎉</span><span className="text-slate-700 dark:text-slate-300"><strong>الحفلات:</strong> {state.externalData.partiesPolicy}</span></div>
+                )}
+                {state.externalData.childrenPolicy && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">👶</span><span className="text-slate-700 dark:text-slate-300"><strong>الأطفال:</strong> {state.externalData.childrenPolicy}</span></div>
+                )}
+                {state.externalData.paymentMethods && (
+                  <div className="flex items-start gap-1.5"><span className="text-amber-600">💳</span><span className="text-slate-700 dark:text-slate-300"><strong>طرق الدفع:</strong> {state.externalData.paymentMethods}</span></div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Host Info ── */}
+          {(state.externalData.hostName || state.externalData.hostJoinDate) && (
+            <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2 text-xs">
+              <div className="font-medium text-slate-500 dark:text-slate-400">معلومات المضيف</div>
+              <div className="mt-0.5 text-slate-800 dark:text-slate-200">
+                {state.externalData.hostName && <span className="font-semibold">{state.externalData.hostName}</span>}
+                {state.externalData.hostJoinDate && <span className="text-slate-500"> · عضو منذ {state.externalData.hostJoinDate}</span>}
+              </div>
+            </div>
+          )}
 
           {state.externalData.description && (
             <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2 text-xs">
@@ -598,10 +1073,314 @@ export default function ContentClient({ units }: { units: Unit[] }) {
             </div>
           )}
 
-          {state.externalData.nearbyPlaces && (
+          {/* ── Fine Prints ── */}
+          {state.externalData.finePrints && (
+            <div className="rounded-lg bg-red-50/60 dark:bg-red-950/20 border border-red-200 dark:border-red-900 p-2 text-xs">
+              <div className="font-medium text-red-600 dark:text-red-400">معلومات مهمة (Fine Print)</div>
+              <div className="mt-0.5 text-slate-800 dark:text-slate-200 whitespace-pre-line">{state.externalData.finePrints}</div>
+            </div>
+          )}
+
+          {/* ── Nearby Places ── */}
+          {(state.externalData.nearbyPlacesDetailed?.length || state.externalData.nearbyPlaces) ? (
             <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2 text-xs">
               <div className="font-medium text-slate-500 dark:text-slate-400">{t('nearby_places')}</div>
-              <div className="mt-0.5 text-slate-800 dark:text-slate-200 line-clamp-3 whitespace-pre-line">{state.externalData.nearbyPlaces}</div>
+              {state.externalData.nearbyPlacesDetailed?.length ? (
+                <div className="mt-1 space-y-1">
+                  {state.externalData.nearbyPlacesDetailed.map((p, i) => (
+                    <div key={i} className="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                      <span>📍 {p.name}</span>
+                      <span className="text-slate-500 font-mono">{p.distance}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-0.5 text-slate-800 dark:text-slate-200 whitespace-pre-line">{state.externalData.nearbyPlaces}</div>
+              )}
+            </div>
+          ) : null}
+
+          {/* Social Links & Profiles */}
+          {(state.externalData.socialShareLinks || state.externalData.socialProfiles) && (
+            <div className="rounded-lg bg-white/60 dark:bg-slate-900/40 p-2 text-xs">
+              <div className="font-medium text-slate-500 dark:text-slate-400 mb-2">{t('social_links')}</div>
+
+              {/* Share Links */}
+              {state.externalData.socialShareLinks && (
+                <div className="mb-3">
+                  <div className="text-[10px] uppercase text-slate-400 mb-1">{t('share_links')}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(state.externalData.socialShareLinks).map(([platform, url]) => {
+                      if (!url) return null;
+                      return (
+                        <a
+                          key={platform}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Share on ${platform}`}
+                          className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                        >
+                          {platform === 'facebook' && <Facebook size={14} />}
+                          {platform === 'twitter' && <Twitter size={14} />}
+                          {platform === 'linkedin' && <Linkedin size={14} />}
+                          {platform === 'whatsapp' && <Share2 size={14} />}
+                          {platform === 'email' && <Mail size={14} />}
+                          {platform === 'copyLink' && <LinkIcon size={14} />}
+                          {!['facebook', 'twitter', 'linkedin', 'whatsapp', 'email', 'copyLink'].includes(platform) && <Share2 size={14} />}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Social Profiles */}
+              {state.externalData.socialProfiles && Object.keys(state.externalData.socialProfiles).length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase text-slate-400 mb-1">{t('social_profiles')}</div>
+                  <div className="flex flex-wrap gap-2 text-slate-600 dark:text-slate-400">
+                    {Object.entries(state.externalData.socialProfiles).map(([platform, url]) => {
+                      if (!url) return null;
+                      return (
+                        <a
+                          key={platform}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        >
+                          {platform === 'facebook' && <Facebook size={12} />}
+                          {platform === 'instagram' && <Instagram size={12} />}
+                          {platform === 'twitter' && <Twitter size={12} />}
+                          {platform === 'linkedin' && <Linkedin size={12} />}
+                          {platform === 'youtube' && <Youtube size={12} />}
+                          <span className="capitalize">{platform}</span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Unfurl Explorer ─────────────────────────────────────── */}
+      {unfurl && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900 dark:bg-emerald-950/50 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-[220px]">
+              <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+                مستكشف بيانات الصفحة (كل شيء)
+              </div>
+              <div className="mt-0.5 text-[11px] text-emerald-700 dark:text-emerald-300 break-all">
+                {unfurl.url.canonical || unfurl.url.input || ""}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  const ok = await copyToClipboard(safeJson(unfurl));
+                  setMsg(ok ? "تم نسخ JSON ✅" : "ما قدرت أنسخ 📋");
+                }}
+                className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500`}
+              >
+                نسخ JSON
+              </button>
+              <button
+                onClick={() => setShowUnfurl((v) => !v)}
+                className={`${btn} border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-slate-950 dark:text-emerald-200`}
+              >
+                {showUnfurl ? "إخفاء" : "عرض"}
+              </button>
+              <button
+                onClick={() => { setUnfurl(null); setShowUnfurl(false); }}
+                className={`${btn} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200`}
+                title="إغلاق"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {showUnfurl && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[240px] flex-1">
+                  <label className="block text-xs text-emerald-900/80 dark:text-emerald-200/80">بحث (Meta / Links / Images / JSON-LD)</label>
+                  <input className={input} value={unfurlSearch} onChange={(e) => setUnfurlSearch(e.target.value)} placeholder="اكتب كلمة…" dir="ltr" />
+                </div>
+                <div className="min-w-[160px]">
+                  <label className="block text-xs text-emerald-900/80 dark:text-emerald-200/80">حجم الصفحة</label>
+                  <select className={input} value={String(unfurlPageSize)} onChange={(e) => setUnfurlPageSize(Number(e.target.value) || 25)}>
+                    {[10, 25, 50, 100].map((n) => (<option key={n} value={String(n)}>{n}</option>))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {([
+                  ["summary", "ملخص"],
+                  ["images", `الصور (${unfurl.media.images.length})`],
+                  ["meta", `Meta (${unfurl.meta.length})`],
+                  ["links", `Links (${unfurl.links.length})`],
+                  ["jsonld", `JSON-LD (${unfurl.structured.jsonld.length})`],
+                  ["raw", "Raw"],
+                ] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    onClick={() => setUnfurlTab(k as any)}
+                    className={`${btn} ${unfurlTab === k ? "bg-emerald-600 text-white" : "bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-100 dark:bg-slate-950 dark:text-emerald-200 dark:border-emerald-900"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {(() => {
+                const q = unfurlSearch.trim().toLowerCase();
+                const Pager = ({ total, pages, page: pg }: { total: number; pages: number; page: number }) => (
+                  <div className="flex items-center justify-between gap-2 text-xs text-emerald-900/80 dark:text-emerald-200/80">
+                    <button className={`${btn} border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-slate-950 dark:text-emerald-200`} disabled={pg <= 1} onClick={() => setUnfurlPage(pg - 1)}>السابق</button>
+                    <div className="tabular-nums">صفحة {pg} / {pages} — العناصر: {total}</div>
+                    <button className={`${btn} border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-slate-950 dark:text-emerald-200`} disabled={pg >= pages} onClick={() => setUnfurlPage(pg + 1)}>التالي</button>
+                  </div>
+                );
+
+                if (unfurlTab === "summary") {
+                  const bestImg = unfurl.media.images[0]?.url || "";
+                  return (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-xl bg-white/70 p-3 text-sm dark:bg-slate-900/40 space-y-2">
+                        <div><div className="text-xs text-slate-500 dark:text-slate-400">Title</div><div className="text-slate-900 dark:text-slate-100">{unfurl.page.title || "—"}</div></div>
+                        <div><div className="text-xs text-slate-500 dark:text-slate-400">Description</div><div className="text-slate-800 dark:text-slate-200 line-clamp-4 whitespace-pre-line">{unfurl.page.description || "—"}</div></div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {[["OG", Object.keys(unfurl.social.og).length], ["Twitter", Object.keys(unfurl.social.twitter).length], ["Meta", unfurl.meta.length], ["Links", unfurl.links.length]].map(([lbl, cnt]) => (
+                            <div key={String(lbl)} className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950/60"><div className="text-slate-500 dark:text-slate-400">{lbl}</div><div className="mt-0.5 tabular-nums">{cnt}</div></div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/40 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">أفضل صورة</div>
+                          {bestImg && <button className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500`} onClick={() => setMainImageInMaster(bestImg)}>خلّها الرئيسية</button>}
+                        </div>
+                        {bestImg ? (
+                          <a href={bestImg} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"><img src={bestImg} className="h-56 w-full object-cover" loading="lazy" /></a>
+                        ) : (
+                          <div className="text-sm text-slate-600 dark:text-slate-300">ما حصلت صور من الصفحة.</div>
+                        )}
+                        <div className="text-xs text-slate-600 dark:text-slate-300">حجم HTML: {unfurl.raw.htmlBytes ? `${(unfurl.raw.htmlBytes / 1024).toFixed(0)} KB` : "—"}{unfurl.raw.preview ? " — وفيه Preview من السيرفر ✅" : ""}</div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (unfurlTab === "images") {
+                  const itemsAll = (unfurl.media.images || []).filter((x) => q ? x.url.toLowerCase().includes(q) || x.from.toLowerCase().includes(q) : true);
+                  const pag = paginate(itemsAll, unfurlPage, unfurlPageSize);
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs text-emerald-900/80 dark:text-emerald-200/80">تقدر تختار صورة رئيسية أو تستبدل كل صور المحتوى.</div>
+                        <button className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500`} onClick={() => replaceMasterImagesFromUnfurl(itemsAll.map((x) => x.url))}>استبدال صور المحتوى</button>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {pag.slice.map((it) => (
+                          <div key={it.url} className="rounded-xl border border-emerald-200 bg-white/70 p-2 dark:border-emerald-900 dark:bg-slate-900/40">
+                            <a href={it.url} target="_blank" rel="noreferrer" className="block aspect-video overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700"><img src={it.url} className="h-full w-full object-cover" loading="lazy" /></a>
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <div className="min-w-0"><div className="text-[11px] text-slate-500 dark:text-slate-400">{it.from} — score {it.score}</div><div className="text-[11px] text-slate-700 dark:text-slate-200 break-all line-clamp-2">{it.url}</div></div>
+                              <button className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500`} onClick={() => setMainImageInMaster(it.url)}>رئيسية</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <Pager total={pag.total} pages={pag.pages} page={pag.page} />
+                    </div>
+                  );
+                }
+
+                if (unfurlTab === "meta") {
+                  const itemsAll = (unfurl.meta || []).filter((x) => q ? `${x.key} ${x.value}`.toLowerCase().includes(q) : true);
+                  const pag = paginate(itemsAll, unfurlPage, unfurlPageSize);
+                  return (
+                    <div className="space-y-3">
+                      <div className="overflow-hidden rounded-xl border border-emerald-200 dark:border-emerald-900">
+                        <div className="max-h-[420px] overflow-auto bg-white/70 dark:bg-slate-900/40">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-emerald-100/80 text-emerald-900 dark:bg-emerald-950/70 dark:text-emerald-200"><tr><th className="px-2 py-2 text-right w-[34%]">Key</th><th className="px-2 py-2 text-right">Value</th></tr></thead>
+                            <tbody>
+                              {pag.slice.map((m, idx) => (
+                                <tr key={`${m.key}-${idx}`} className="border-t border-emerald-200/60 dark:border-emerald-900/60"><td className="px-2 py-2 align-top font-mono break-all">{m.key}</td><td className="px-2 py-2 align-top break-all">{m.value}</td></tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                      <Pager total={pag.total} pages={pag.pages} page={pag.page} />
+                    </div>
+                  );
+                }
+
+                if (unfurlTab === "links") {
+                  const itemsAll = (unfurl.links || []).filter((x) => q ? `${x.rel} ${x.href}`.toLowerCase().includes(q) : true);
+                  const pag = paginate(itemsAll, unfurlPage, unfurlPageSize);
+                  return (
+                    <div className="space-y-3">
+                      <div className="overflow-hidden rounded-xl border border-emerald-200 dark:border-emerald-900">
+                        <div className="max-h-[420px] overflow-auto bg-white/70 dark:bg-slate-900/40">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-emerald-100/80 text-emerald-900 dark:bg-emerald-950/70 dark:text-emerald-200"><tr><th className="px-2 py-2 text-right w-[22%]">rel</th><th className="px-2 py-2 text-right">href</th></tr></thead>
+                            <tbody>
+                              {pag.slice.map((l, idx) => (
+                                <tr key={`${l.rel}-${idx}`} className="border-t border-emerald-200/60 dark:border-emerald-900/60">
+                                  <td className="px-2 py-2 align-top font-mono break-all">{l.rel}</td>
+                                  <td className="px-2 py-2 align-top break-all">
+                                    <a className="underline text-emerald-700 dark:text-emerald-300" href={l.href} target="_blank" rel="noreferrer">{l.href}</a>
+                                    <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{[l.type && `type:${l.type}`, l.sizes && `sizes:${l.sizes}`, l.hreflang && `lang:${l.hreflang}`, l.as && `as:${l.as}`].filter(Boolean).join(" · ")}</div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                      <Pager total={pag.total} pages={pag.pages} page={pag.page} />
+                    </div>
+                  );
+                }
+
+                if (unfurlTab === "jsonld") {
+                  const itemsAll = (unfurl.structured.jsonld || []).filter((x) => q ? `${(x.types || []).join(" ")} ${x.raw}`.toLowerCase().includes(q) : true);
+                  const pag = paginate(itemsAll, unfurlPage, unfurlPageSize);
+                  return (
+                    <div className="space-y-3">
+                      <div className="grid gap-2">
+                        {pag.slice.map((j, idx) => (
+                          <div key={idx} className="rounded-xl border border-emerald-200 bg-white/70 p-3 dark:border-emerald-900 dark:bg-slate-900/40">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs text-slate-700 dark:text-slate-200">{j.types?.length ? <span className="font-semibold">Types:</span> : <span className="font-semibold">JSON-LD</span>}<span className="ml-2 font-mono">{j.types?.join(", ") || "—"}</span></div>
+                              <button className={`${btn} border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-slate-950 dark:text-emerald-200`} onClick={async () => { const ok = await copyToClipboard(j.raw); setMsg(ok ? "تم نسخ JSON-LD ✅" : "فشل النسخ 📋"); }}>نسخ</button>
+                            </div>
+                            {j.error && <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">Parsing error: {j.error}</div>}
+                            <pre className="mt-2 max-h-[260px] overflow-auto rounded-lg bg-slate-950/90 p-2 text-[11px] text-slate-100">{j.raw.slice(0, 6000)}</pre>
+                          </div>
+                        ))}
+                      </div>
+                      <Pager total={pag.total} pages={pag.pages} page={pag.page} />
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="rounded-xl border border-emerald-200 bg-white/70 p-3 dark:border-emerald-900 dark:bg-slate-900/40">
+                    <pre className="max-h-[520px] overflow-auto rounded-lg bg-slate-950/90 p-3 text-[11px] text-slate-100">{safeJson(unfurl).slice(0, 150000)}</pre>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -647,15 +1426,22 @@ export default function ContentClient({ units }: { units: Unit[] }) {
           />
           {state.master.images?.length ? (
             <div className="mt-2">
-              <div className="grid grid-cols-6 gap-1.5">
-                {state.master.images.slice(0, 18).map((src) => (
-                  <a key={src} href={src} target="_blank" rel="noreferrer" className="block aspect-square overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-                    <img src={src} className="h-full w-full object-cover" loading="lazy" />
-                  </a>
+              <div className="flex flex-wrap gap-2">
+                {state.master.images.slice(0, 12).map((src, i) => (
+                  <div key={`${src}-${i}`} className="relative">
+                    <a href={src} target="_blank" rel="noreferrer" className="block h-16 w-16 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                      <img src={src} className="h-full w-full object-cover" loading="lazy" />
+                    </a>
+                    <div className="mt-1 flex items-center justify-center gap-1 text-[10px]">
+                      <button className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-amber-900" onClick={() => setMainImageInMaster(src)} title="اجعلها الأولى">★</button>
+                      <button className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700" onClick={() => moveMasterImage(i, -1)} title="فوق">↑</button>
+                      <button className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700" onClick={() => moveMasterImage(i, 1)} title="تحت">↓</button>
+                    </div>
+                  </div>
                 ))}
-                {state.master.images.length > 18 && (
-                  <div className="flex items-center justify-center aspect-square rounded-lg bg-slate-100 dark:bg-slate-800 text-xs text-slate-500">
-                    +{state.master.images.length - 18}
+                {state.master.images.length > 12 && (
+                  <div className="flex items-center justify-center h-16 w-16 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs text-slate-500">
+                    +{state.master.images.length - 12}
                   </div>
                 )}
               </div>

@@ -50,6 +50,8 @@ model Unit {
   currency    String   @default("BHD")
   defaultRate Decimal? @db.Decimal(12, 3)
 
+  sortOrder Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -168,6 +168,27 @@ export async function GET(req: Request, ctx: { params: Promise<{ unitId: string 
               nearbyPlaces: det.nearbyPlaces || null,
               damageDeposit: det.damageDeposit || null,
               cancellationPolicy: det.cancellationPolicy || null,
+              // Extended fields
+              propertyId: det.propertyId || null,
+              coordinates: det.coordinates || null,
+              accommodationType: det.accommodationType || null,
+              roomSize: det.roomSize || null,
+              bedroomCount: det.bedroomCount || null,
+              bathroomCount: det.bathroomCount || null,
+              checkInTime: det.checkInTime || null,
+              checkOutTime: det.checkOutTime || null,
+              quietHours: det.quietHours || null,
+              minCheckInAge: det.minCheckInAge || null,
+              smokingPolicy: det.smokingPolicy || null,
+              petsPolicy: det.petsPolicy || null,
+              partiesPolicy: det.partiesPolicy || null,
+              childrenPolicy: det.childrenPolicy || null,
+              paymentMethods: det.paymentMethods || null,
+              hostName: det.hostName || null,
+              hostJoinDate: det.hostJoinDate || null,
+              finePrints: det.finePrints || null,
+              currency: det.currency || null,
+              nearbyPlacesDetailed: det.nearbyPlacesDetailed || null,
             };
             break;
           }
