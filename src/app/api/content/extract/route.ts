@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     }
 
     const result = extracted.results[0];
-    const rawContent = result.raw_content || "";
+    const rawContent = result.rawContent || "";
 
     // Detect channel
     const urlLower = url.toLowerCase();
