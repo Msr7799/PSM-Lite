@@ -21,7 +21,7 @@ export async function GET() {
                 },
                 rateRules: true,
             },
-            orderBy: { createdAt: "asc" },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         });
 
         const now = new Date();
@@ -88,10 +88,11 @@ export async function GET() {
 
                 return {
                     id: unit.id,
-                    unitName: unit.name,
+                    name: unit.name,
                     code: unit.code,
                     currency: unit.currency,
-                    defaultRate: tonightRate,
+                    tonightRate,
+                    sortOrder: unit.sortOrder,
                     address:
                         (unit.content as any)?.address ??
                         unit.content?.addressLine1 ??

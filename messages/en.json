@@ -226,5 +226,12 @@
   "cancellation_policy": "Cancellation Policy",
   "placeholder_cancellation": "e.g. Free cancellation before check-in",
   "nearby_places": "Nearby Places & Distances",
-  "placeholder_nearby": "Bahrain International Airport: 3.1 mi\nFloating City Beach: 18-min walk"
+  "placeholder_nearby": "Bahrain International Airport: 3.1 mi\nFloating City Beach: 18-min walk",
+  "social_links": "Social Links",
+  "share_links": "Share Content",
+  "social_profiles": "Social Profiles",
+  "back": "Back",
+  "no_rate": "No rate set",
+  "operations": "Operations",
+  "night": "night"
 }

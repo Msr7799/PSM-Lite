@@ -14,6 +14,30 @@ export type PropertyDetails = {
   nearbyPlaces?: string | null;
   damageDeposit?: string | null;
   cancellationPolicy?: string | null;
+  socialShareLinks?: Record<string, string>;
+  socialProfiles?: Record<string, string>;
+  // Extended fields
+  propertyId?: string | null;
+  coordinates?: { lat: number; lng: number } | null;
+  accommodationType?: string | null;
+  roomSize?: string | null;
+  bedroomCount?: number | null;
+  bathroomCount?: number | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  quietHours?: string | null;
+  minCheckInAge?: number | null;
+  smokingPolicy?: string | null;
+  petsPolicy?: string | null;
+  partiesPolicy?: string | null;
+  childrenPolicy?: string | null;
+  paymentMethods?: string | null;
+  hostName?: string | null;
+  hostJoinDate?: string | null;
+  finePrints?: string | null;
+  currency?: string | null;
+  fullAmenities?: Record<string, string[]>;
+  nearbyPlacesDetailed?: Array<{ name: string; distance: string }>;
 };
 
 export type PublicPreview = {
@@ -102,12 +126,43 @@ function findJsonLdByType(items: any[], ...types: string[]): any | null {
 
 // ─── Booking.com specific scraper ───────────────────────────────────
 
+function extractBookingEnvVar(htmlStr: string, varName: string): string | null {
+  // Matches: booking.env.varName = 'value' or booking.env.varName = value or b_varName: 'value'
+  const patterns = [
+    new RegExp(`booking\\.env\\.${varName}\\s*=\\s*'([^']*)'`),
+    new RegExp(`booking\\.env\\.${varName}\\s*=\\s*"([^"]*)"`),
+    new RegExp(`booking\\.env\\.${varName}\\s*=\\s*([\\d.]+)`),
+    new RegExp(`${varName}:\\s*'([^']*)'`),
+    new RegExp(`${varName}:\\s*"([^"]*)"`),
+  ];
+  for (const pat of patterns) {
+    const m = htmlStr.match(pat);
+    if (m?.[1]) return m[1];
+  }
+  return null;
+}
+
+function parseBookingApolloData($: cheerio.CheerioAPI): any {
+  let apolloData: any = null;
+  $('script[data-capla-store-data="apollo"]').each((_, el) => {
+    try {
+      const raw = $(el).html();
+      if (raw) apolloData = JSON.parse(raw);
+    } catch { /* skip malformed */ }
+  });
+  return apolloData;
+}
+
 function scrapeBooking($: cheerio.CheerioAPI, jsonLdItems: any[]) {
   const images: string[] = [];
   const amenities: string[] = [];
   const details: PropertyDetails = {};
+  const htmlStr = $.html();
+  const fullText = $("body").text();
 
-  // ── Images: multiple selectors + regex fallback for bstatic.com URLs ──
+  // ══════════════════════════════════════════════════════════════
+  // 1) IMAGES: multiple selectors + regex fallback
+  // ══════════════════════════════════════════════════════════════
   $("a[data-thumb-url]").each((_, el) => {
     const href = $(el).attr("href");
     if (href) images.push(href);
@@ -120,24 +175,23 @@ function scrapeBooking($: cheerio.CheerioAPI, jsonLdItems: any[]) {
     const src = $(el).attr("src") || $(el).attr("data-src");
     if (src && src.startsWith("http")) images.push(src);
   });
-  // Gallery carousel / slider images
   $("[data-testid='gallery-image'] img, .hotel-photo-carousel img, .hp-gallery img, .slick-slide img").each((_, el) => {
     const src = $(el).attr("src") || $(el).attr("data-lazy") || $(el).attr("data-src");
     if (src && src.includes("bstatic.com")) images.push(src);
   });
-  // Regex fallback: extract ALL cf.bstatic.com hotel image URLs from the full HTML
-  const htmlStr = $.html();
+  // Regex fallback: extract ALL cf.bstatic.com hotel image URLs
   const bstaticRegex = /https:\/\/cf\.bstatic\.com\/xdata\/images\/hotel\/[^"'\s)]+/g;
   const bstaticMatches = htmlStr.match(bstaticRegex);
   if (bstaticMatches) {
     for (const m of bstaticMatches) {
-      // Upgrade to max1024x768 for high-res
       const hiRes = m.replace(/\/max\d+(?:x\d+)?\//, "/max1024x768/");
       images.push(hiRes);
     }
   }
 
-  // ── Amenities from facility/amenity blocks ──
+  // ══════════════════════════════════════════════════════════════
+  // 2) AMENITIES from facility/amenity blocks
+  // ══════════════════════════════════════════════════════════════
   $('[data-testid="property-most-popular-facilities-wrapper"] li, .hp_desc_important_facilities li, .facilitiesChecklist li, [data-testid="facility-list-most-popular"] span').each((_, el) => {
     const t = $(el).text().trim();
     if (t && t.length < 80) amenities.push(t);
@@ -147,60 +201,282 @@ function scrapeBooking($: cheerio.CheerioAPI, jsonLdItems: any[]) {
     if (t && t.length < 80) amenities.push(t);
   });
 
-  // ── Description ──
+  // ══════════════════════════════════════════════════════════════
+  // 3) DESCRIPTION
+  // ══════════════════════════════════════════════════════════════
   const descBlock = $('[data-testid="property-description"] p, #property_description_content p, .hp_desc_main_content p').map((_, el) => $(el).text().trim()).get().filter(Boolean).join("\n\n");
   if (descBlock) details.description = descBlock;
 
-  // ── House rules: comprehensive extraction ──
-  const rulesTexts: string[] = [];
-  // Main house rules section
-  $('[data-testid="house-rules-section"] li, .house-rules-list li, #hotelPoliciesInc li').each((_, el) => {
-    const t = $(el).text().trim();
-    if (t && t.length < 200) rulesTexts.push(t);
-  });
-  // Policy cards (smoking, parties, quiet hours, pets, etc.)
-  $('[data-testid="house-rules-section"] .bui-list__description, [data-testid="house-rules-section"] .policy-block').each((_, el) => {
-    const t = $(el).text().trim();
-    if (t && t.length < 200) rulesTexts.push(t);
-  });
-  // Broader: any text inside house rules container divs
-  $('[data-testid="HouseRules"] div, [data-testid="HouseRulesSection"] div').each((_, el) => {
-    const t = $(el).text().trim();
-    if (t && t.length > 5 && t.length < 200 && !rulesTexts.includes(t)) rulesTexts.push(t);
-  });
-  // Regex fallback: extract known rule patterns from the full page text
-  const fullText = $("body").text();
-  const rulePatterns = [
-    /(?:التدخين|Smoking)[:\s]*([^\n.]{5,120})/i,
-    /(?:الحفلات|Parties)[:\s]*([^\n.]{5,120})/i,
-    /(?:الحيوانات|Pets)[:\s]*([^\n.]{5,120})/i,
-    /(?:ساعات الالتزام بالهدوء|Quiet hours)[:\s]*([^\n.]{5,120})/i,
-    /(?:أقل عمر|minimum age)[:\s]*([^\n.]{5,80})/i,
-    /(?:تأمين ضد الأضرار|damage deposit)[:\s]*([^\n.]{5,150})/i,
-  ];
-  for (const pat of rulePatterns) {
-    const m = fullText.match(pat);
-    if (m) {
-      const rule = m[0].trim();
-      if (!rulesTexts.some((r) => r.includes(rule) || rule.includes(r))) rulesTexts.push(rule);
+  // ══════════════════════════════════════════════════════════════
+  // 4) BOOKING.ENV VARIABLES (coordinates, propertyId, currency)
+  // ══════════════════════════════════════════════════════════════
+  const bLat = extractBookingEnvVar(htmlStr, "b_map_center_latitude");
+  const bLng = extractBookingEnvVar(htmlStr, "b_map_center_longitude");
+  if (bLat && bLng) {
+    const lat = parseFloat(bLat);
+    const lng = parseFloat(bLng);
+    if (!isNaN(lat) && !isNaN(lng)) details.coordinates = { lat, lng };
+  }
+
+  const bHotelId = extractBookingEnvVar(htmlStr, "b_hotel_id");
+  if (bHotelId) details.propertyId = bHotelId;
+
+  const bCurrency = extractBookingEnvVar(htmlStr, "b_hotel_currencycode") || extractBookingEnvVar(htmlStr, "country_currency");
+  if (bCurrency) details.currency = bCurrency;
+
+  // Accommodation type from booking.env
+  const bAccType = extractBookingEnvVar(htmlStr, "accommodation_type_id");
+  const accTypeMap: Record<string, string> = { "1": "Hotel", "2": "Apartment", "3": "Villa", "4": "Hostel", "5": "Motel", "7": "Guest house", "9": "B&B", "201": "Resort", "204": "Aparthotel", "206": "Holiday home", "208": "Chalet", "213": "Country house", "216": "Townhouse", "218": "Glamping", "219": "Tent", "220": "Farm stay", "222": "Boat", "223": "Houseboat", "224": "Holiday park", "225": "Homestay", "226": "Campsite", "228": "Chalet" };
+
+  // ══════════════════════════════════════════════════════════════
+  // 5) APOLLO GRAPHQL DATA (the richest data source)
+  // ══════════════════════════════════════════════════════════════
+  const apolloData = parseBookingApolloData($);
+  if (apolloData) {
+    // Find property object
+    let prop: any = null;
+    for (const key of Object.keys(apolloData)) {
+      if (key.startsWith("Property:")) {
+        prop = apolloData[key];
+        break;
+      }
+    }
+
+    if (prop) {
+      // Property ID
+      if (!details.propertyId && prop.id) details.propertyId = String(prop.id);
+
+      // Accommodation type from Apollo
+      const accTypeRef = prop.accommodationType?.__ref || prop.accommodationType;
+      if (typeof accTypeRef === "string") {
+        const typeMatch = accTypeRef.match(/type":"?([^"}\s]+)/);
+        if (typeMatch) details.accommodationType = typeMatch[1];
+      } else if (accTypeRef?.type) {
+        details.accommodationType = accTypeRef.type;
+      }
+      if (!details.accommodationType && bAccType && accTypeMap[bAccType]) {
+        details.accommodationType = accTypeMap[bAccType];
+      }
+
+      // Fine prints
+      if (prop.finePrints && typeof prop.finePrints === "string") {
+        details.finePrints = prop.finePrints;
+      }
+
+      // Currency
+      if (!details.currency && prop.hotelCurrencyCode) {
+        details.currency = prop.hotelCurrencyCode;
+      }
+
+      // Damage deposit from Apollo
+      if (prop.damagePolicy) {
+        const dp = prop.damagePolicy;
+        const phrase = dp.standardPhrase || "";
+        if (phrase) details.damageDeposit = phrase;
+        if (dp.amount) {
+          const amtStr = typeof dp.amount === "object" ? `${dp.amount.value} ${dp.amount.currency || ""}` : String(dp.amount);
+          if (!details.damageDeposit) details.damageDeposit = amtStr;
+        }
+      }
+
+      // House rules from Apollo (structured data!)
+      if (prop.houseRules) {
+        const hr = prop.houseRules;
+        const rulesTexts: string[] = [];
+
+        // Check-in/out times
+        if (hr.checkinCheckoutTimes) {
+          const cico = hr.checkinCheckoutTimes;
+          if (cico.checkinTimeRange) {
+            const from = cico.checkinTimeRange.fromFormatted;
+            const until = cico.checkinTimeRange.untilFormatted;
+            const ciStr = from ? (until ? `${from} – ${until}` : `${from}`) : null;
+            if (ciStr) {
+              details.checkInTime = ciStr;
+              details.checkInInfo = `تسجيل الوصول: ${ciStr}`;
+              rulesTexts.push(`تسجيل الوصول: ${ciStr}`);
+            }
+          }
+          if (cico.checkoutTimeRange) {
+            const from = cico.checkoutTimeRange.fromFormatted;
+            const until = cico.checkoutTimeRange.untilFormatted;
+            const coStr = from ? (until ? `${from} – ${until}` : `${from}`) : null;
+            if (coStr) {
+              details.checkOutTime = coStr;
+              details.checkOutInfo = `تسجيل المغادرة: ${coStr}`;
+              rulesTexts.push(`تسجيل المغادرة: ${coStr}`);
+            }
+          }
+          if (cico.requireNoticeOfArrivalTimePrase) {
+            rulesTexts.push(cico.requireNoticeOfArrivalTimePrase);
+          }
+        }
+
+        // Min check-in age
+        if (hr.checkinAgeRestriction) {
+          const age = hr.checkinAgeRestriction.minCheckinAge;
+          if (age) {
+            details.minCheckInAge = age;
+            const phrase = hr.checkinAgeRestriction.checkinAgeRestrictionPhrase || `أقل عمر لتسجيل الوصول: ${age}`;
+            rulesTexts.push(phrase);
+          }
+        }
+
+        // Smoking
+        if (hr.smoking?.smokingNotAllowedAllRoomsPhrase) {
+          details.smokingPolicy = hr.smoking.smokingNotAllowedAllRoomsPhrase;
+          rulesTexts.push(hr.smoking.smokingNotAllowedAllRoomsPhrase);
+        }
+
+        // Quiet hours
+        if (hr.quietHours) {
+          const qh = hr.quietHours;
+          if (qh.quietHoursPhrase) {
+            details.quietHours = qh.quietHoursPhrase;
+            rulesTexts.push(qh.quietHoursPhrase);
+          } else if (qh.timeRange) {
+            const from = qh.timeRange.fromFormatted;
+            const until = qh.timeRange.untilFormatted;
+            if (from && until) {
+              details.quietHours = `${from} – ${until}`;
+              rulesTexts.push(`ساعات الهدوء: ${from} – ${until}`);
+            }
+          }
+        }
+
+        // Parties
+        if (hr.parties?.partiesNotAllowedPhrase) {
+          details.partiesPolicy = hr.parties.partiesNotAllowedPhrase;
+          rulesTexts.push(hr.parties.partiesNotAllowedPhrase);
+        }
+
+        // Payment methods
+        if (hr.paymentMethods) {
+          const pm = hr.paymentMethods;
+          const methods: string[] = [];
+          if (pm.hotelAcceptsCashStatus === "PATP_PROPERTY_ACCEPTS_CASH") methods.push("نقداً / Cash");
+          if (pm.acceptedCreditCards?.length) {
+            const ccMap: Record<string, string> = { "1": "Visa", "2": "Mastercard", "3": "American Express", "5": "Diners Club", "6": "JCB", "18": "UnionPay" };
+            for (const cc of pm.acceptedCreditCards) {
+              const ref = typeof cc === "string" ? cc : cc?.__ref;
+              if (ref) {
+                const idMatch = ref.match(/(\d+)/);
+                if (idMatch && ccMap[idMatch[1]]) methods.push(ccMap[idMatch[1]]);
+              }
+            }
+          }
+          if (methods.length) {
+            details.paymentMethods = methods.join("، ");
+            rulesTexts.push(`طرق الدفع: ${details.paymentMethods}`);
+          }
+        }
+
+        if (rulesTexts.length) details.houseRules = unique(rulesTexts).join("\n");
+      }
+
+      // Policies (pets)
+      const policiesKey = Object.keys(apolloData).find(k => k.startsWith("PropertyPolicies:"));
+      if (policiesKey) {
+        const policies = apolloData[policiesKey];
+        if (policies?.pets) {
+          const petsAllowed = policies.pets.petsAllowed;
+          if (petsAllowed === "NO") {
+            details.petsPolicy = "غير مسموح بالحيوانات الأليفة";
+          } else if (petsAllowed === "YES") {
+            details.petsPolicy = "مسموح بالحيوانات الأليفة";
+            if (policies.pets.chargeModePets && policies.pets.chargeModePets !== "NOT_APPLICABLE") {
+              details.petsPolicy += ` (${policies.pets.chargeModePets})`;
+            }
+          }
+        }
+      }
+
+      // Room data (bedrooms, bathrooms, size)
+      for (const key of Object.keys(apolloData)) {
+        if (key.startsWith("RTRoomCard:") || key.startsWith("RoomData:")) {
+          const room = apolloData[key];
+          if (room) {
+            // Try to get room name
+            if (room.translations?.name && !details.accommodationType) {
+              details.accommodationType = room.translations.name;
+            }
+          }
+        }
+      }
+
+      // Highlights from Apollo
+      const highlightTexts: string[] = [];
+      for (const key of Object.keys(apolloData)) {
+        if (key.startsWith("RTRoomFacilityHighlight:") || key.startsWith("RTHotelFacilityHighlight:")) {
+          const fac = apolloData[key];
+          if (fac?.title || fac?.name) {
+            highlightTexts.push(fac.title || fac.name);
+          }
+        }
+      }
+      if (highlightTexts.length) {
+        details.propertyHighlights = unique(highlightTexts).join("\n");
+      }
     }
   }
-  if (rulesTexts.length) details.houseRules = unique(rulesTexts).join("\n");
 
-  // ── Check-in / check-out: multiple patterns (EN + AR) ──
-  const checkSections = $('[data-testid="check-in-out-section"], .policies_list, [data-testid="HouseRules"], [data-testid="HouseRulesSection"]').text() + " " + fullText;
-  // English patterns
-  const ciEn = checkSections.match(/check[- ]?in\s*(?:from\s*)?(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*(?:to|[-–])\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)/i);
-  const coEn = checkSections.match(/check[- ]?out\s*(?:from\s*)?(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*(?:to|[-–])\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)/i);
-  // Arabic patterns
-  const ciAr = checkSections.match(/تسجيل الوصول[:\s]*([\d:]+\s*(?:ص|م|صباحاً|مساءً)?(?:\s*[-–]\s*[\d:]+\s*(?:ص|م|صباحاً|مساءً)?)?)/);
-  const coAr = checkSections.match(/تسجيل المغادرة[:\s]*([\d:]+\s*(?:ص|م|صباحاً|مساءً)?(?:\s*[-–]\s*[\d:]+\s*(?:ص|م|صباحاً|مساءً)?)?)/);
-  if (ciEn) details.checkInInfo = `Check-in: ${ciEn[1].trim()}`;
-  else if (ciAr) details.checkInInfo = `تسجيل الوصول: ${ciAr[1].trim()}`;
-  if (coEn) details.checkOutInfo = `Check-out: ${coEn[1].trim()}`;
-  else if (coAr) details.checkOutInfo = `تسجيل المغادرة: ${coAr[1].trim()}`;
+  // ══════════════════════════════════════════════════════════════
+  // 6) FALLBACK: House rules from HTML selectors + regex
+  // ══════════════════════════════════════════════════════════════
+  if (!details.houseRules) {
+    const rulesTexts: string[] = [];
+    $('[data-testid="house-rules-section"] li, .house-rules-list li, #hotelPoliciesInc li').each((_, el) => {
+      const t = $(el).text().trim();
+      if (t && t.length < 200) rulesTexts.push(t);
+    });
+    $('[data-testid="house-rules-section"] .bui-list__description, [data-testid="house-rules-section"] .policy-block').each((_, el) => {
+      const t = $(el).text().trim();
+      if (t && t.length < 200) rulesTexts.push(t);
+    });
+    $('[data-testid="HouseRules"] div, [data-testid="HouseRulesSection"] div').each((_, el) => {
+      const t = $(el).text().trim();
+      if (t && t.length > 5 && t.length < 200 && !rulesTexts.includes(t)) rulesTexts.push(t);
+    });
+    const rulePatterns = [
+      /(?:التدخين|Smoking)[:\s]*([^\n.]{5,120})/i,
+      /(?:الحفلات|Parties)[:\s]*([^\n.]{5,120})/i,
+      /(?:الحيوانات|Pets)[:\s]*([^\n.]{5,120})/i,
+      /(?:ساعات الالتزام بالهدوء|Quiet hours)[:\s]*([^\n.]{5,120})/i,
+      /(?:أقل عمر|minimum age)[:\s]*([^\n.]{5,80})/i,
+      /(?:تأمين ضد الأضرار|damage deposit)[:\s]*([^\n.]{5,150})/i,
+    ];
+    for (const pat of rulePatterns) {
+      const m = fullText.match(pat);
+      if (m) {
+        const rule = m[0].trim();
+        if (!rulesTexts.some((r) => r.includes(rule) || rule.includes(r))) rulesTexts.push(rule);
+      }
+    }
+    if (rulesTexts.length) details.houseRules = unique(rulesTexts).join("\n");
+  }
 
-  // ── JSON-LD enrichment ──
+  // ══════════════════════════════════════════════════════════════
+  // 7) CHECK-IN/OUT FALLBACK from HTML text patterns
+  // ══════════════════════════════════════════════════════════════
+  if (!details.checkInInfo || !details.checkOutInfo) {
+    const checkSections = $('[data-testid="check-in-out-section"], .policies_list, [data-testid="HouseRules"], [data-testid="HouseRulesSection"]').text() + " " + fullText;
+    if (!details.checkInInfo) {
+      const ciEn = checkSections.match(/check[- ]?in\s*(?:from\s*)?(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*(?:to|[-–])\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)/i);
+      const ciAr = checkSections.match(/تسجيل الوصول[:\s]*([\d:]+\s*(?:ص|م|صباحاً|مساءً)?(?:\s*[-–]\s*[\d:]+\s*(?:ص|م|صباحاً|مساءً)?)?)/);
+      if (ciEn) details.checkInInfo = `Check-in: ${ciEn[1].trim()}`;
+      else if (ciAr) details.checkInInfo = `تسجيل الوصول: ${ciAr[1].trim()}`;
+    }
+    if (!details.checkOutInfo) {
+      const coEn = checkSections.match(/check[- ]?out\s*(?:from\s*)?(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*(?:to|[-–])\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)/i);
+      const coAr = checkSections.match(/تسجيل المغادرة[:\s]*([\d:]+\s*(?:ص|م|صباحاً|مساءً)?(?:\s*[-–]\s*[\d:]+\s*(?:ص|م|صباحاً|مساءً)?)?)/);
+      if (coEn) details.checkOutInfo = `Check-out: ${coEn[1].trim()}`;
+      else if (coAr) details.checkOutInfo = `تسجيل المغادرة: ${coAr[1].trim()}`;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 8) JSON-LD ENRICHMENT
+  // ══════════════════════════════════════════════════════════════
   const hotel = findJsonLdByType(jsonLdItems, "Hotel", "LodgingBusiness", "VacationRental", "Apartment", "House");
   if (hotel) {
     if (hotel.address) {
@@ -210,7 +486,7 @@ function scrapeBooking($: cheerio.CheerioAPI, jsonLdItems: any[]) {
     if (hotel.aggregateRating?.ratingValue) {
       details.rating = `${hotel.aggregateRating.ratingValue}`;
     }
-    if (hotel["@type"]) {
+    if (!details.propertyType && hotel["@type"]) {
       const pt = Array.isArray(hotel["@type"]) ? hotel["@type"][0] : hotel["@type"];
       details.propertyType = pt;
     }
@@ -221,57 +497,135 @@ function scrapeBooking($: cheerio.CheerioAPI, jsonLdItems: any[]) {
         if (n && typeof n === "string") amenities.push(n);
       }
     }
-    // JSON-LD check-in/out times
     if (!details.checkInInfo && hotel.checkinTime) details.checkInInfo = `Check-in: ${hotel.checkinTime}`;
     if (!details.checkOutInfo && hotel.checkoutTime) details.checkOutInfo = `Check-out: ${hotel.checkoutTime}`;
-    // JSON-LD occupancy
     if (hotel.numberOfRooms) details.guestCapacity = `${hotel.numberOfRooms} rooms`;
   }
 
-  // ── Guest capacity from page text ──
-  const capacityMatch = fullText.match(/(?:accommodate|sleeps?|can sleep|guests?)[:\s]*(\d+)\s*(?:guests?|people)?/i);
+  // ══════════════════════════════════════════════════════════════
+  // 9) ROOM DETAILS from description (size, bedrooms, bathrooms)
+  // ══════════════════════════════════════════════════════════════
+  const descText = details.description || fullText;
+  const sizeMatch = descText.match(/(\d+)\s*(?:م²|m²|متر مربع|square met)/i);
+  if (sizeMatch) details.roomSize = `${sizeMatch[1]} م²`;
+
+  const bedroomMatch = descText.match(/(\d+)\s*(?:غرف?\s*نوم|bedrooms?)/i);
+  if (bedroomMatch) details.bedroomCount = parseInt(bedroomMatch[1]);
+
+  const bathroomMatch = descText.match(/(?:\((\d+)\)\s*حمّ?ام|(\d+)\s*(?:حمّ?ام|bathrooms?))/i);
+  if (bathroomMatch) details.bathroomCount = parseInt(bathroomMatch[1] || bathroomMatch[2]);
+
+  // Guest capacity
+  const capacityMatch = fullText.match(/(?:accommodate|sleeps?|can sleep|guests?|ضيوف)[:\s]*(\d+)\s*(?:guests?|people|ضيوف)?/i);
   if (capacityMatch && !details.guestCapacity) details.guestCapacity = `${capacityMatch[1]} guests`;
 
-  // ── Property highlights ──
-  const highlights: string[] = [];
-  $('[data-testid="property-highlights"] li, .property-highlights li, .hp-desc-highlighted li').each((_, el) => {
-    const t = $(el).text().trim();
-    if (t && t.length < 120) highlights.push(t);
-  });
-  // Fallback: extract bedroom/bathroom/pool mentions from description
-  if (!highlights.length && details.description) {
-    const d = details.description;
-    const bedroomMatch = d.match(/(\d+)\s*(?:bedrooms?|غرف)/i);
-    const bathroomMatch = d.match(/(\d+)\s*(?:bathrooms?|حمام)/i);
-    if (bedroomMatch) highlights.push(`${bedroomMatch[1]} bedrooms`);
-    if (bathroomMatch) highlights.push(`${bathroomMatch[1]} bathrooms`);
-    if (/private\s*(?:beach|pool)|مسبح\s*خاص|شاطئ\s*خاص/i.test(d)) highlights.push("Private pool/beach");
-    if (/hot\s*tub|jacuzzi|جاكوزي/i.test(d)) highlights.push("Hot tub");
-    if (/free\s*(?:wifi|parking)|واي\s*فاي\s*مجاني|مواقف\s*مجاني/i.test(d)) highlights.push("Free WiFi & parking");
+  // ══════════════════════════════════════════════════════════════
+  // 10) PROPERTY HIGHLIGHTS from HTML
+  // ══════════════════════════════════════════════════════════════
+  if (!details.propertyHighlights) {
+    const highlights: string[] = [];
+    $('[data-testid="property-highlights"] li, .property-highlights li, .hp-desc-highlighted li').each((_, el) => {
+      const t = $(el).text().trim();
+      if (t && t.length < 120) highlights.push(t);
+    });
+    if (!highlights.length && details.description) {
+      const d = details.description;
+      if (/private\s*(?:beach|pool)|مسبح\s*خاص|شاطئ\s*خاص/i.test(d)) highlights.push("مسبح/شاطئ خاص");
+      if (/hot\s*tub|jacuzzi|جاكوزي|حوض استحمام ساخن/i.test(d)) highlights.push("حوض استحمام ساخن");
+      if (/free\s*(?:wifi|parking)|واي\s*فاي\s*مجاني|مواقف\s*مجاني/i.test(d)) highlights.push("واي فاي + مواقف مجانية");
+      if (/garden|حديقة/i.test(d)) highlights.push("حديقة");
+      if (/terrace|تراس/i.test(d)) highlights.push("تراس");
+      if (/bbq|شواء|barbecue/i.test(d)) highlights.push("مرافق شواء");
+      if (/sea\s*view|إطلالة.*بحر/i.test(d)) highlights.push("إطلالة على البحر");
+    }
+    if (highlights.length) details.propertyHighlights = unique(highlights).join("\n");
   }
-  if (highlights.length) details.propertyHighlights = unique(highlights).join("\n");
 
-  // ── Nearby places / distances ──
+  // ══════════════════════════════════════════════════════════════
+  // 11) NEARBY PLACES (from description + HTML)
+  // ══════════════════════════════════════════════════════════════
   const places: string[] = [];
+  const placesDetailed: Array<{ name: string; distance: string }> = [];
   $('[data-testid="TextWithIcon"], .hp-poi-content-wrapper li, .surroundings__text').each((_, el) => {
     const t = $(el).text().trim();
     if (t && t.length < 120 && /\d/.test(t)) places.push(t);
   });
-  // Regex fallback from full text
-  const distPatterns = fullText.matchAll(/([A-Za-z\u0600-\u06FF\s]+(?:Airport|Beach|Museum|Fort|Center|Centre|مطار|شاطئ|متحف|قلعة|مركز))\s*[\d.]+\s*(?:mi|km|miles?|كم)/gi);
+
+  // Extract from description text (e.g. "1.5 كم عن شاطئ فلوتنج سيتي")
+  const nearbyFromDesc = descText.matchAll(/(?:مسافة\s+)?([\d.]+)\s*(?:كم|km)\s*(?:عن|من|about|from)\s+([^\n.,،]{3,60})/gi);
+  for (const m of nearbyFromDesc) {
+    const dist = `${m[1]} كم`;
+    const name = m[2].trim().replace(/^مكان\s*/, "");
+    if (!placesDetailed.some(p => p.name.includes(name))) {
+      placesDetailed.push({ name, distance: dist });
+      const entry = `${name}: ${dist}`;
+      if (!places.some(p => p.includes(name))) places.push(entry);
+    }
+  }
+
+  // Regex fallback: "Airport/Beach/etc + distance"
+  const distPatterns = fullText.matchAll(/([A-Za-z\u0600-\u06FF\s]+(?:Airport|Beach|Museum|Fort|Center|Centre|مطار|شاطئ|متحف|قلعة|مركز))\s*([\d.]+)\s*(?:mi|km|miles?|كم)/gi);
   for (const dp of distPatterns) {
     const entry = dp[0].trim();
-    if (entry.length < 120 && !places.some(p => p.includes(entry))) places.push(entry);
+    if (entry.length < 120 && !places.some(p => p.includes(entry))) {
+      places.push(entry);
+      placesDetailed.push({ name: dp[1].trim(), distance: `${dp[2]} كم` });
+    }
   }
+
   if (places.length) details.nearbyPlaces = unique(places).join("\n");
+  if (placesDetailed.length) details.nearbyPlacesDetailed = placesDetailed;
 
-  // ── Damage deposit ──
-  const depositMatch = fullText.match(/(?:damage\s*deposit|تأمين\s*ضد\s*الأضرار)[:\s]*(?:of\s*)?([A-Z]{2,4}\s*[\d,.]+|[\d,.]+\s*[A-Z]{2,4})/i);
-  if (depositMatch) details.damageDeposit = depositMatch[0].trim();
+  // ══════════════════════════════════════════════════════════════
+  // 12) DAMAGE DEPOSIT fallback from text
+  // ══════════════════════════════════════════════════════════════
+  if (!details.damageDeposit) {
+    const depositMatch = fullText.match(/(?:damage\s*deposit|تأمين\s*ضد\s*الأضرار)[:\s]*(?:of\s*)?([A-Z]{2,4}\s*[\d,.]+|[\d,.]+\s*[A-Z]{2,4})/i);
+    if (depositMatch) details.damageDeposit = depositMatch[0].trim();
+  }
 
-  // ── Cancellation policy ──
+  // ══════════════════════════════════════════════════════════════
+  // 13) CANCELLATION POLICY
+  // ══════════════════════════════════════════════════════════════
   const cancelMatch = fullText.match(/(?:cancellation|إلغاء)[/\s]*(?:prepayment|الدفع\s*المسبق)?[:\s]*([^\n]{10,200})/i);
   if (cancelMatch) details.cancellationPolicy = cancelMatch[1].trim();
+
+  // ══════════════════════════════════════════════════════════════
+  // 14) HOST INFO from HTML
+  // ══════════════════════════════════════════════════════════════
+  const hostBlock = $('[data-testid="host-profile"], [data-testid="PropertyHostProfile"], .host-profile-link').text();
+  if (hostBlock) {
+    const hostNameMatch = hostBlock.match(/(?:managed by|يديرها|مُدار بواسطة|Managed by)\s*([^\n(]{2,40})/i);
+    if (hostNameMatch) details.hostName = hostNameMatch[1].trim();
+  }
+  // Fallback: from booking.env
+  if (!details.hostName) {
+    const envHostName = extractBookingEnvVar(htmlStr, "b_genius_user");
+    if (!envHostName) {
+      const fnMatch = htmlStr.match(/first_name:\s*"([^"]+)"/);
+      const lnMatch = htmlStr.match(/last_name:\s*"([^"]+)"/);
+      if (fnMatch) details.hostName = `${fnMatch[1]}${lnMatch ? " " + lnMatch[1] : ""}`;
+    }
+  }
+  // Host join date
+  const joinMatch = fullText.match(/(?:hosting since|عضو منذ|على Booking\.com منذ)\s*([^\n.]{3,30})/i);
+  if (joinMatch) details.hostJoinDate = joinMatch[1].trim();
+
+  // ══════════════════════════════════════════════════════════════
+  // 15) CHILDREN POLICY from finePrints
+  // ══════════════════════════════════════════════════════════════
+  if (details.finePrints) {
+    // Children/cribs
+    if (/أطفال|children/i.test(details.finePrints)) {
+      const childMatch = details.finePrints.match(/(?:الأطفال|children)[^.]*\./i);
+      if (childMatch) details.childrenPolicy = childMatch[0].trim();
+    }
+  }
+  // Additional children policy from text
+  if (!details.childrenPolicy) {
+    const childMatch = fullText.match(/(?:الأطفال مسموح|children allowed|children.*welcome|أسرّة أطفال|cribs)[^.]*\./i);
+    if (childMatch) details.childrenPolicy = childMatch[0].trim();
+  }
 
   return { images: unique(images), amenities: unique(amenities), details };
 }
@@ -795,6 +1149,65 @@ export async function getOrFetchPublicPreview(
     }
   }
 
+  // ─── Social Link Extraction ───
+  // 1. Social Profiles (from JSON-LD sameAs or regex)
+  const socialProfiles: Record<string, string> = {};
+
+  // From JSON-LD
+  const entitiesWithSameAs = findJsonLdByType(jsonLdItems, "Hotel", "LodgingBusiness", "Organization", "Person", "LocalBusiness");
+  if (entitiesWithSameAs?.sameAs) {
+    const sameAs = Array.isArray(entitiesWithSameAs.sameAs) ? entitiesWithSameAs.sameAs : [entitiesWithSameAs.sameAs];
+    for (const link of sameAs) {
+      if (typeof link === "string") {
+        if (link.includes("facebook.com")) socialProfiles.facebook = link;
+        else if (link.includes("instagram.com")) socialProfiles.instagram = link;
+        else if (link.includes("twitter.com") || link.includes("x.com")) socialProfiles.twitter = link;
+        else if (link.includes("linkedin.com")) socialProfiles.linkedin = link;
+        else if (link.includes("youtube.com")) socialProfiles.youtube = link;
+        else if (link.includes("tiktok.com")) socialProfiles.tiktok = link;
+      }
+    }
+  }
+
+  // From HTML regex (fallback)
+  const fullText = $("body").text();
+  const instaMatch = fullText.match(/(?:instagram\.com|@)([\w._]{3,30})/i);
+  if (instaMatch && !socialProfiles.instagram) {
+    // Basic heuristic, might be cleaner to look for hrefs
+    const hrefs = $("a[href*='instagram.com']").attr("href");
+    if (hrefs) socialProfiles.instagram = hrefs;
+  }
+  const fbMatch = $("a[href*='facebook.com']").attr("href");
+  if (fbMatch && !socialProfiles.facebook) socialProfiles.facebook = fbMatch;
+
+
+  // 2. Social Share Links (Generated from Canonical URL)
+  let canonicalUrl =
+    $('link[rel="canonical"]').attr('href') ||
+    $('meta[property="og:url"]').attr('content') ||
+    (channel === "BOOKING" ? `https://www.booking.com/hotel/${$('meta[name="twitter:site"]').attr("content") || "us"}/${$('meta[name="twitter:card"]').attr("content") || ""}.html` : null);
+
+  // Clean up canonical URL if it's relative
+  if (canonicalUrl && !canonicalUrl.startsWith("http")) {
+    // If we have a base URL from somewhere, use it. Otherwise, if it's booking, we can guess.
+    if (channel === "BOOKING" && !canonicalUrl.startsWith("/")) canonicalUrl = "https://www.booking.com/" + canonicalUrl;
+  }
+
+  // If we still don't have a canonical URL but we have the input sourceUrl (passed implicitly if we had it, but here we only have HTML)
+  // We can try to infer it from the og:url if it exists.
+
+  const socialShareLinks: Record<string, string> = {};
+  if (canonicalUrl && canonicalUrl.startsWith("http")) {
+    const encUrl = encodeURIComponent(canonicalUrl);
+    const encTitle = encodeURIComponent(ogTitle || "");
+    socialShareLinks.facebook = `https://www.facebook.com/sharer/sharer.php?u=${encUrl}`;
+    socialShareLinks.twitter = `https://twitter.com/intent/tweet?url=${encUrl}&text=${encTitle}`;
+    socialShareLinks.whatsapp = `https://api.whatsapp.com/send?text=${encTitle}%20${encUrl}`;
+    socialShareLinks.linkedin = `https://www.linkedin.com/shareArticle?mini=true&url=${encUrl}&title=${encTitle}`;
+    socialShareLinks.email = `mailto:?subject=${encTitle}&body=${encUrl}`;
+    socialShareLinks.copyLink = canonicalUrl;
+  }
+
   // Channel-specific deep scraping
   let scraped: { images: string[]; amenities: string[]; details: PropertyDetails };
 
@@ -821,6 +1234,13 @@ export async function getOrFetchPublicPreview(
       if (s && !scraped.images.includes(s)) scraped.images.push(s);
     }
   }
+
+  // Merge social links
+  if (!scraped.details.socialProfiles) scraped.details.socialProfiles = {};
+  Object.assign(scraped.details.socialProfiles, socialProfiles);
+
+  if (!scraped.details.socialShareLinks) scraped.details.socialShareLinks = {};
+  Object.assign(scraped.details.socialShareLinks, socialShareLinks);
 
   // Generic <img srcset> fallback
   if (scraped.images.length < 5) {

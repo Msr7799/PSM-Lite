@@ -9,8 +9,9 @@ export default async function UnitsPage() {
     include: {
       feeds: true,
       channelListings: true,
+      content: { select: { images: true } },
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
 
   // Gather all publicUrls to batch-fetch preview cache
@@ -30,6 +31,7 @@ export default async function UnitsPage() {
   const safeUnits = (units as any[]).map((u) => {
     const listing = u.channelListings?.find((cl: any) => cl.publicUrl);
     const cached = listing?.publicUrl ? cacheMap.get(listing.publicUrl) : null;
+    const contentImages = Array.isArray(u.content?.images) ? u.content.images : [];
 
     return {
       id: u.id,
@@ -38,7 +40,7 @@ export default async function UnitsPage() {
       isActive: u.isActive,
       currency: u.currency,
       defaultRate: u.defaultRate?.toString() ?? null,
-      ogImage: (cached as any)?.ogImage ?? null,
+      ogImage: contentImages[0] ?? (cached as any)?.ogImage ?? null,
       ogTitle: (cached as any)?.ogTitle ?? null,
       bookingPublicUrl: listing?.publicUrl ?? null,
       listings: u.channelListings.map((cl: any) => ({
