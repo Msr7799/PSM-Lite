@@ -1,19 +1,17 @@
 import type { ReactNode } from "react";
 
-export default function LocaleLayout({
-  children,
-  params,
-}: {
+interface Props {
   children: ReactNode;
-  params: { locale: string };
-}) {
-  const { locale } = params;
+  params: Promise<{ locale: string }>;
+}
+
+export default async function LoginLayout({ children, params }: Props) {
+  // We strictly await params to satisfy Next.js 15+ patterns, even if unused here.
+  await params;
 
   return (
-    <html lang={locale} dir={locale === "ar" ? "rtl" : "ltr"}>
-      <body className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-        {children}
-      </body>
-    </html>
+    <main className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      {children}
+    </main>
   );
 }
