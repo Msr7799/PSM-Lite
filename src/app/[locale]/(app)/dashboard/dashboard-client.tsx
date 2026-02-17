@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { NotesWidget } from "./notes-widget";
 import { useRouter } from "next/navigation";
 import {
     DndContext,
@@ -90,11 +91,10 @@ function SortableCard({
         <div
             ref={setNodeRef}
             style={style}
-            className={`group flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition dark:bg-slate-900 ${
-                isDragging
+            className={`group flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition dark:bg-slate-900 ${isDragging
                     ? "border-blue-400 shadow-xl ring-2 ring-blue-300 dark:ring-blue-600"
                     : "border-slate-200 hover:shadow-lg dark:border-slate-700"
-            }`}
+                }`}
         >
             {/* Drag Handle */}
             <div
@@ -231,11 +231,10 @@ function SortableCard({
                             {card.channels.map((ch, i) => (
                                 <span
                                     key={i}
-                                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium text-white ${
-                                        ch === "BOOKING" ? "bg-indigo-600" :
-                                        ch === "AIRBNB" ? "bg-rose-600" :
-                                        ch === "AGODA" ? "bg-emerald-600" : "bg-slate-500"
-                                    }`}
+                                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium text-white ${ch === "BOOKING" ? "bg-indigo-600" :
+                                            ch === "AIRBNB" ? "bg-rose-600" :
+                                                ch === "AGODA" ? "bg-emerald-600" : "bg-slate-500"
+                                        }`}
                                 >
                                     {ch}
                                 </span>
@@ -383,29 +382,38 @@ export default function DashboardClient() {
                 </div>
             )}
 
-            {/* Cards Grid with Drag & Drop */}
-            <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-            >
-                <SortableContext
-                    items={cards.map((c) => c.id)}
-                    strategy={rectSortingStrategy}
-                >
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {cards.map((card) => (
-                            <SortableCard
-                                key={card.id}
-                                card={card}
-                                onNavigate={handleNavigate}
-                                onFetchPreview={handleFetchPreview}
-                                fetchingPreview={fetchingPreview}
-                            />
-                        ))}
-                    </div>
-                </SortableContext>
-            </DndContext>
+            {/* Main Layout: Units Grid (Left) + Notes (Right) */}
+            <div className="grid lg:grid-cols-4 gap-6 items-start">
+                <div className="lg:col-span-3">
+                    <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={handleDragEnd}
+                    >
+                        <SortableContext
+                            items={cards.map((c) => c.id)}
+                            strategy={rectSortingStrategy}
+                        >
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                {cards.map((card) => (
+                                    <SortableCard
+                                        key={card.id}
+                                        card={card}
+                                        onNavigate={handleNavigate}
+                                        onFetchPreview={handleFetchPreview}
+                                        fetchingPreview={fetchingPreview}
+                                    />
+                                ))}
+                            </div>
+                        </SortableContext>
+                    </DndContext>
+                </div>
+
+                {/* Right Sidebar: Notes */}
+                <div className="lg:col-span-1 sticky top-4">
+                    <NotesWidget />
+                </div>
+            </div>
         </div>
     );
 }
