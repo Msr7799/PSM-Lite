@@ -1,0 +1,19 @@
+{
+    // PMS Cron Worker — calls /api/cron/sync on your Vercel deployment
+    // Cron trigger runs every 30 minutes (UTC timezone)
+    "name": "pms-cron-worker",
+    "main": "src/index.ts",
+    "compatibility_date": "2024-12-01",
+    "triggers": {
+        "crons": [
+            "*/30 * * * *"
+        ]
+    }
+    // Secrets (set via wrangler):
+    //   CRON_SECRET — must match your Vercel .env CRON_SECRET
+    //   SYNC_URL    — e.g. https://your-app.vercel.app/api/cron/sync
+    //
+    // Commands to set secrets:
+    //   npx wrangler secret put CRON_SECRET
+    //   npx wrangler secret put SYNC_URL
+}

@@ -1,0 +1,342 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Channel {
+  BOOKING
+  AIRBNB
+  AGODA
+  MANUAL
+  OTHER
+}
+
+enum FeedType {
+  URL
+  INLINE
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+enum ExpenseCategory {
+  CLEANING
+  MAINTENANCE
+  UTILITIES
+  SUPPLIES
+  STAFF
+  OTHER
+}
+
+enum PayoutStatus {
+  PENDING
+  RECEIVED
+}
+
+model Unit {
+  id       String  @id @default(cuid())
+  name     String
+  code     String?
+  isActive Boolean @default(true)
+
+  // Preferences
+  currency    String   @default("BHD")
+  defaultRate Decimal? @db.Decimal(12, 3)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  feeds           IcalFeed[]
+  bookings        Booking[]
+  expenses        Expense[]
+  content         UnitContent?
+  rateRules       RateRule[]
+  publishLogs     PublishSnapshot[]
+  channelListings ChannelListing[]
+  opsSnapshots    ChannelOpsSnapshot[]
+  dateBlocks      DateBlock[]
+}
+
+model DateBlock {
+  id     String @id @default(cuid())
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  date   DateTime // UTC date-only (midnight)
+  source String   @default("MANUAL") // "MANUAL", "BOOKING", "AIRBNB", "AGODA", etc.
+  reason String?  // optional note
+
+  createdAt DateTime @default(now())
+
+  @@unique([unitId, date], name: "unit_date_block")
+  @@index([unitId, date])
+}
+
+model UnitContent {
+  id     String @id @default(cuid())
+  unitId String @unique
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  // Master content (your source of truth)
+  title        String?
+  description  String?
+  houseRules   String?
+  checkInInfo  String?
+  checkOutInfo String?
+  amenities    Json?
+  images       Json?
+  locationNote String?
+
+  // Property details (imported from listing)
+  address            String?
+  guestCapacity      String?
+  propertyHighlights String?
+  nearbyPlaces       String?
+  damageDeposit      String?
+  cancellationPolicy String?
+
+  // For your own reference (not synced to channels)
+  addressLine1 String?
+  city         String?
+  country      String?
+  lat          Float?
+  lng          Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  channelContents ChannelContent[]
+}
+
+model ChannelContent {
+  id            String      @id @default(cuid())
+  unitContentId String
+  unitContent   UnitContent @relation(fields: [unitContentId], references: [id], onDelete: Cascade)
+
+  channel      Channel
+  title        String?
+  description  String?
+  houseRules   String?
+  checkInInfo  String?
+  checkOutInfo String?
+  amenities    Json?
+  images       Json?
+  listingUrl   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([unitContentId, channel])
+  @@index([unitContentId, channel])
+}
+
+model PublishSnapshot {
+  id          String   @id @default(cuid())
+  unitId      String
+  unit        Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  channel     Channel
+  section     String // e.g. "CONTENT", "PRICING"
+  checksum    String
+  snapshot    Json
+  publishedAt DateTime @default(now())
+  note        String?
+
+  @@index([unitId, channel, section, publishedAt])
+}
+
+model RateRule {
+  id     String @id @default(cuid())
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  channel Channel?
+  name    String
+
+  startDate DateTime
+  endDate   DateTime
+
+  baseRate    Decimal  @db.Decimal(12, 3)
+  weekendRate Decimal? @db.Decimal(12, 3)
+
+  minNights Int     @default(1)
+  maxNights Int?
+  stopSell  Boolean @default(false)
+
+  // Optional: restrict to specific weekdays [0..6] (0=Sun). If null, applies to all.
+  daysOfWeek Json?
+
+  // Higher wins. Use this when ranges overlap.
+  priority Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([unitId, startDate, endDate])
+}
+
+model Payout {
+  id          String       @id @default(cuid())
+  channel     Channel
+  payoutDate  DateTime
+  currency    String       @default("BHD")
+  amount      Decimal      @db.Decimal(12, 3)
+  providerRef String?
+  status      PayoutStatus @default(RECEIVED)
+  note        String?
+
+  createdAt DateTime @default(now())
+
+  lines PayoutLine[]
+}
+
+model PayoutLine {
+  id       String @id @default(cuid())
+  payoutId String
+  payout   Payout @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  amount Decimal @db.Decimal(12, 3)
+  note   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
+  @@index([payoutId])
+}
+
+model IcalFeed {
+  id     String @id @default(cuid())
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  channel    Channel
+  type       FeedType
+  name       String?
+  url        String?
+  icsText    String?
+  lastSyncAt DateTime?
+
+  // Enhanced sync metadata
+  lastEtag     String?
+  lastModified String?
+  lastError    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([unitId, channel])
+}
+
+model Booking {
+  id     String @id @default(cuid())
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  channel     Channel
+  externalUid String
+  summary     String?
+  startDate   DateTime
+  endDate     DateTime
+  lastSeenAt  DateTime @default(now())
+  isCancelled Boolean  @default(false)
+
+  // Financials
+  currency         String   @default("BHD")
+  grossAmount      Decimal? @db.Decimal(12, 3)
+  commissionAmount Decimal? @db.Decimal(12, 3)
+  taxAmount        Decimal? @db.Decimal(12, 3)
+  otherFeesAmount  Decimal? @db.Decimal(12, 3)
+  netAmount        Decimal? @db.Decimal(12, 3)
+
+  paymentStatus PaymentStatus @default(UNPAID)
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payoutLines PayoutLine[]
+
+  @@unique([unitId, channel, externalUid], name: "unit_channel_uid")
+  @@index([unitId, startDate, endDate])
+}
+
+model Expense {
+  id     String @id @default(cuid())
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  category ExpenseCategory @default(OTHER)
+  amount   Decimal         @db.Decimal(12, 3)
+  currency String          @default("BHD")
+  spentAt  DateTime
+  note     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([unitId, spentAt])
+}
+
+// ─── New Models for Booking Import & OG Preview ─────────────────────
+
+model ChannelListing {
+  id     String @id @default(cuid())
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  channel    Channel // BOOKING, AIRBNB, AGODA
+  externalId String // bookingPropertyId
+  publicUrl  String? // e.g. https://www.booking.com/hotel/bh/xxxx
+  editUrl    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([channel, externalId])
+  @@index([unitId])
+}
+
+model ChannelOpsSnapshot {
+  id     String @id @default(cuid())
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  channel      Channel @default(BOOKING)
+  statusText   String?
+  locationText String?
+
+  checkins48h          Int @default(0)
+  checkouts48h         Int @default(0)
+  guestMessagesCount   Int @default(0)
+  bookingMessagesCount Int @default(0)
+
+  capturedAt DateTime @default(now())
+
+  @@index([unitId, capturedAt])
+}
+
+model PublicPreviewCache {
+  id  String @id @default(cuid())
+  url String @unique
+
+  ogTitle String?
+  ogDesc  String?
+  ogImage String?
+
+  images    Json? // Array of image URLs
+  amenities Json? // Array of amenities
+  details   Json? // Other details like description, house rules, etc.
+
+  fetchedAt  DateTime @default(now())
+  ttlSeconds Int      @default(86400) // 24 hours
+
+  @@index([url])
+}
