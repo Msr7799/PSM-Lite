@@ -2,13 +2,13 @@
   "name": "pms-lite",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && next build && node scripts/fix-middleware-trace.js",
-    "start": "next start",
-    "lint": "eslint",
-    "postinstall": "prisma generate"
-  },
+ "scripts": {
+  "dev": "next dev",
+  "build": "prisma generate && next build --webpack && node scripts/fix-middleware-trace.js",
+  "start": "next start",
+  "lint": "eslint",
+  "postinstall": "prisma generate"
+},
   "dependencies": {
     "@prisma/client": "6.19.0",
     "@radix-ui/react-dialog": "^1.1.15",
