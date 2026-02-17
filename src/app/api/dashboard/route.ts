@@ -83,11 +83,15 @@ export async function GET() {
                     tonightRate = unit.defaultRate.toString();
                 }
 
+                const contentImages = (unit.content as any)?.images ?? [];
+                const channels = unit.channelListings.map((l) => l.channel);
+
                 return {
                     id: unit.id,
-                    name: unit.name,
+                    unitName: unit.name,
                     code: unit.code,
                     currency: unit.currency,
+                    defaultRate: tonightRate,
                     address:
                         (unit.content as any)?.address ??
                         unit.content?.addressLine1 ??
@@ -96,9 +100,10 @@ export async function GET() {
                         null,
                     guestCapacity: (unit.content as any)?.guestCapacity ?? null,
                     propertyHighlights: (unit.content as any)?.propertyHighlights ?? null,
+                    images: Array.isArray(contentImages) ? contentImages : [],
+                    channels,
                     bookingPublicUrl: listing?.publicUrl ?? null,
                     bookingPropertyId: listing?.externalId ?? null,
-                    tonightRate,
                     preview,
                     snapshot: snapshot
                         ? {
