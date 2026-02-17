@@ -13,9 +13,10 @@ import {
     ChevronDown,
     Globe,
     Receipt,
+    LogOut,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { usePathname } from "@/i18n/routing";
+import { usePathname, useRouter } from "@/i18n/routing";
 import { Link } from "@/i18n/routing";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 
@@ -37,12 +38,23 @@ export function AppSidebar() {
     const t = useTranslations();
     const locale = useLocale();
     const pathname = usePathname();
+    const router = useRouter();
     const dir = locale === "ar" ? "rtl" : "ltr";
     const side = locale === "ar" ? "right" : "left";
 
     const isActive = (href: string) => {
         if (href === "/") return pathname === "/";
         return pathname.startsWith(href);
+    };
+
+    const handleLogout = async () => {
+        try {
+            await fetch("/api/auth/logout", { method: "POST" });
+            router.push("/login");
+            router.refresh();
+        } catch (error) {
+            console.error("Logout failed:", error);
+        }
     };
 
     const coreItems = [
@@ -170,6 +182,12 @@ export function AppSidebar() {
             <SidebarFooter>
                 <SidebarSeparator />
                 <SidebarMenu>
+                    <SidebarMenuItem>
+                        <SidebarMenuButton onClick={handleLogout} tooltip="تسجيل الخروج">
+                            <LogOut />
+                            <span>تسجيل الخروج</span>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
                     <SidebarMenuItem>
                         <div className="flex items-center justify-center p-2 group-data-[collapsible=icon]:p-0">
                             <LanguageSwitcher />

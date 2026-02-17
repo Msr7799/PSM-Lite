@@ -64,6 +64,7 @@ model Unit {
   channelListings ChannelListing[]
   opsSnapshots    ChannelOpsSnapshot[]
   dateBlocks      DateBlock[]
+  notes           Note[]
 }
 
 model DateBlock {
@@ -73,7 +74,7 @@ model DateBlock {
 
   date   DateTime // UTC date-only (midnight)
   source String   @default("MANUAL") // "MANUAL", "BOOKING", "AIRBNB", "AGODA", etc.
-  reason String?  // optional note
+  reason String? // optional note
 
   createdAt DateTime @default(now())
 
@@ -341,4 +342,33 @@ model PublicPreviewCache {
   ttlSeconds Int      @default(86400) // 24 hours
 
   @@index([url])
+}
+
+enum NotePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model Note {
+  id     String  @id @default(cuid())
+  unitId String?
+  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  title    String
+  content  String
+  priority NotePriority @default(NORMAL)
+
+  // File attachments (JSON array of {filename, url, size, type})
+  attachments Json?
+
+  authorEmail String? // Who created it
+  isResolved  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([unitId, createdAt])
+  @@index([isResolved, priority])
 }
