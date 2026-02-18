@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { NextRequest } from "next/server";
 
 const SECRET_KEY = new TextEncoder().encode(
   process.env.JWT_SECRET || "your-secret-key-change-in-production"
@@ -58,6 +59,23 @@ export async function verifySession(): Promise<{ email: string } | null> {
   if (!token) {
     return null;
   }
+
+  return verifyToken(token);
+}
+
+// Helper to get session from request (supports API Key for mobile app)
+export async function getServerSession(req: NextRequest): Promise<{ email: string } | null> {
+  // 1. Check API Key (Bypass for Mobile App)
+  const apiKey = req.headers.get("x-api-key");
+  const validApiKey = process.env.API_KEY || "pms-lite-secret-api-key"; // Fallback for dev
+
+  if (apiKey === validApiKey) {
+    return { email: "mobile-app@pms.local" };
+  }
+
+  // 2. Check Cookie
+  const token = req.cookies.get(COOKIE_NAME)?.value;
+  if (!token) return null;
 
   return verifyToken(token);
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifySession, verifyToken } from "@/lib/auth";
+import { getServerSession } from "@/lib/auth";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -8,8 +8,7 @@ interface RouteContext {
 
 // GET /api/notes/:id - Get a single note
 export async function GET(req: NextRequest, context: RouteContext) {
-  const token = req.cookies.get("auth_token")?.value;
-  const session = (token && await verifyToken(token)) || await verifySession();
+  const session = await getServerSession(req);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -34,8 +33,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
 // PATCH /api/notes/:id - Update a note
 export async function PATCH(req: NextRequest, context: RouteContext) {
-  const token = req.cookies.get("auth_token")?.value;
-  const session = (token && await verifyToken(token)) || await verifySession();
+  const session = await getServerSession(req);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -74,8 +72,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
 // DELETE /api/notes/:id - Delete a note
 export async function DELETE(req: NextRequest, context: RouteContext) {
-  const token = req.cookies.get("auth_token")?.value;
-  const session = (token && await verifyToken(token)) || await verifySession();
+  const session = await getServerSession(req);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

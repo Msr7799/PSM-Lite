@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifySession, verifyToken } from "@/lib/auth";
+import { getServerSession } from "@/lib/auth";
 
 // GET /api/notes - List all notes (with optional filters)
 export async function GET(req: NextRequest) {
-  const token = req.cookies.get("auth_token")?.value;
-  const session = (token && await verifyToken(token)) || await verifySession();
+  const session = await getServerSession(req);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -38,8 +37,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/notes - Create a new note
 export async function POST(req: NextRequest) {
-  const token = req.cookies.get("auth_token")?.value;
-  const session = (token && await verifyToken(token)) || await verifySession();
+  const session = await getServerSession(req);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
