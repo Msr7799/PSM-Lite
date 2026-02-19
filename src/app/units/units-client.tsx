@@ -69,7 +69,7 @@ export default function UnitsClient({ initialUnits }: { initialUnits: Unit[] }) 
   async function refresh() {
     const res = await fetch("/api/units", { cache: "no-store" });
     const data = await res.json();
-    setUnits(data.units);
+    setUnits(Array.isArray(data) ? data : (data.units ?? []));
   }
 
   async function createUnit(e: React.FormEvent<HTMLFormElement>) {

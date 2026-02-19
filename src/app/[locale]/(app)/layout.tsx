@@ -1,10 +1,12 @@
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotesBell } from "@/components/notes-bell";
+import { ThemeInit } from "@/components/theme-init";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
         <SidebarProvider>
+            <ThemeInit />
             <AppSidebar />
             <SidebarInset className="bg-slate-50 dark:bg-slate-950 overflow-hidden flex flex-col h-screen">
                 <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4 shadow-sm z-10">

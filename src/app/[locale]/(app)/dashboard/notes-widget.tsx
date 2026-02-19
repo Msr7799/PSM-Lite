@@ -74,7 +74,7 @@ export function NotesWidget() {
             const res = await fetch("/api/units");
             if (res.ok) {
                 const data = await res.json();
-                setUnits(data);
+            setUnits(Array.isArray(data) ? data : (data.units ?? []));
             }
         } catch (error) {
             console.error("Failed to fetch units", error);

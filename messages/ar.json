@@ -237,5 +237,29 @@
   "simsar": {
     "simsar": "سيمسار",
     "back": "رجوع"
-  }
+  },
+  "settings_title": "الإعدادات",
+  "settings_desc": "خصص الألوان، عاين التغييرات، وتحكم بأدوات إعادة ضبط التطبيق.",
+  "settings_accent": "لون التمييز",
+  "settings_preview": "معاينة",
+  "settings_preview_desc": "يُستخدم هذا اللون لتحديد العنصر النشط في السايد بار وللأزرار الأساسية.",
+  "settings_soft_bg": "خلفية خفيفة (accent-soft)",
+  "settings_current_accent": "الحالي: {label} ({hex})",
+  "settings_danger_zone": "منطقة الخطر",
+  "settings_factory_reset": "إعادة ضبط المصنع",
+  "settings_factory_reset_desc": "سيتم حذف كل البيانات بما فيها الحجوزات والوحدات والمحتوى.",
+  "settings_reset": "إعادة ضبط",
+  "settings_processing": "جارٍ التنفيذ...",
+  "settings_reset_confirm_1": "متأكد تبي تسوي إعادة ضبط مصنع؟ هذا بيمسح كل البيانات.",
+  "settings_reset_confirm_2": "تم تنزيل النسخة الاحتياطية. تبي تكمل وتمسح كل البيانات؟ ما عليه رجعة.",
+  "settings_reset_done": "تمت إعادة ضبط المصنع. بيتم تحديث التطبيق الآن.",
+  "settings_reset_error": "صار خطأ: {message}",
+  "settings_accent_blue": "أزرق فاتح",
+  "settings_accent_orange": "برتقالي",
+  "settings_accent_green": "أخضر",
+  "settings_accent_purple": "بنفسجي",
+  "settings_accent_teal": "تركواز",
+  "settings_accent_rose": "وردي",
+  "settings_accent_amber": "كهرماني",
+  "settings_accent_indigo": "نيلي"
 }

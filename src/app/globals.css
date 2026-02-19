@@ -155,3 +155,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+html {
+  cursor: var(--cursor-default, auto);
+}
+
+button,
+a,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+select {
+  cursor: var(--cursor-pointer, pointer);
+}
+

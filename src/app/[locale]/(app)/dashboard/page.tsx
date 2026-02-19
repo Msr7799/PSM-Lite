@@ -1,4 +1,3 @@
-
 import DashboardClient from "./dashboard-client";
 import { getTranslations } from "next-intl/server";
 

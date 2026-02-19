@@ -237,5 +237,29 @@
   "simsar": {
     "simsar": "Simsar",
     "back": "Back"
-  }
+  },
+  "settings_title": "Settings",
+  "settings_desc": "Customize theme, preview changes, and manage app reset tools.",
+  "settings_accent": "Accent",
+  "settings_preview": "Preview",
+  "settings_preview_desc": "This color is used for highlights in the sidebar and primary buttons.",
+  "settings_soft_bg": "Soft background (accent-soft)",
+  "settings_current_accent": "Current: {label} ({hex})",
+  "settings_danger_zone": "Danger Zone",
+  "settings_factory_reset": "Factory Reset",
+  "settings_factory_reset_desc": "This will delete all data including bookings, units, and content.",
+  "settings_reset": "Reset",
+  "settings_processing": "Processing...",
+  "settings_reset_confirm_1": "Are you sure you want to perform a factory reset? This will wipe all data.",
+  "settings_reset_confirm_2": "Backup downloaded successfully. Do you want to proceed with WIPING ALL DATA? This cannot be undone.",
+  "settings_reset_done": "Factory reset complete. The application will now reload.",
+  "settings_reset_error": "An error occurred: {message}",
+  "settings_accent_blue": "Light Blue",
+  "settings_accent_orange": "Orange",
+  "settings_accent_green": "Green",
+  "settings_accent_purple": "Purple",
+  "settings_accent_teal": "Teal",
+  "settings_accent_rose": "Rose",
+  "settings_accent_amber": "Amber",
+  "settings_accent_indigo": "Indigo"
 }
