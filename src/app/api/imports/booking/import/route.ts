@@ -13,7 +13,18 @@ type MappedRow = {
     checkouts48h?: number;
     guestMessagesCount?: number;
     bookingMessagesCount?: number;
+    grossAmount?: number;
+    commissionAmount?: number;
+    taxAmount?: number;
+    otherFeesAmount?: number;
+    netAmount?: number;
 };
+
+function parseNumber(value: string | undefined): number | undefined {
+    if (value === undefined) return undefined;
+    const parsed = parseFloat(value.replace(/[^0-9.-]/g, ""));
+    return isNaN(parsed) ? undefined : parsed;
+}
 
 export async function POST(req: NextRequest) {
     try {
@@ -67,6 +78,21 @@ export async function POST(req: NextRequest) {
                         ? parseInt(String(row[mapping.bookingMessagesCount] ?? "0"), 10) ||
                         0
                         : 0,
+                    grossAmount: mapping.grossAmount
+                        ? parseNumber(String(row[mapping.grossAmount] ?? ""))
+                        : undefined,
+                    commissionAmount: mapping.commissionAmount
+                        ? parseNumber(String(row[mapping.commissionAmount] ?? ""))
+                        : undefined,
+                    taxAmount: mapping.taxAmount
+                        ? parseNumber(String(row[mapping.taxAmount] ?? ""))
+                        : undefined,
+                    otherFeesAmount: mapping.otherFeesAmount
+                        ? parseNumber(String(row[mapping.otherFeesAmount] ?? ""))
+                        : undefined,
+                    netAmount: mapping.netAmount
+                        ? parseNumber(String(row[mapping.netAmount] ?? ""))
+                        : undefined,
                 };
 
                 if (!mapped.bookingPropertyId || !mapped.propertyName) {
@@ -148,6 +174,11 @@ export async function POST(req: NextRequest) {
                         checkouts48h: mapped.checkouts48h ?? 0,
                         guestMessagesCount: mapped.guestMessagesCount ?? 0,
                         bookingMessagesCount: mapped.bookingMessagesCount ?? 0,
+                        grossAmount: mapped.grossAmount ?? null,
+                        commissionAmount: mapped.commissionAmount ?? null,
+                        taxAmount: mapped.taxAmount ?? null,
+                        otherFeesAmount: mapped.otherFeesAmount ?? null,
+                        netAmount: mapped.netAmount ?? null,
                     },
                 });
             } catch (rowErr: unknown) {

@@ -19,7 +19,7 @@ type ImportResult = {
     errors: string[];
 };
 
-const REQUIRED_FIELDS = [
+const FIELD_DEFINITIONS = [
     { key: "bookingPropertyId", label: "Booking Property ID (رقم العقار)", required: true },
     { key: "propertyName", label: "Property Name (اسم العقار)", required: true },
     { key: "locationText", label: "Location (الموقع)", required: false },
@@ -28,6 +28,11 @@ const REQUIRED_FIELDS = [
     { key: "checkouts48h", label: "Check-outs 48h", required: false },
     { key: "guestMessagesCount", label: "Guest Messages", required: false },
     { key: "bookingMessagesCount", label: "Booking Messages", required: false },
+    { key: "grossAmount", label: "Gross Amount (الإيراد الإجمالي)", required: false },
+    { key: "commissionAmount", label: "Commission (عمولة المنصة)", required: false },
+    { key: "taxAmount", label: "Taxes (الضرائب)", required: false },
+    { key: "otherFeesAmount", label: "Other Fees (رسوم أخرى)", required: false },
+    { key: "netAmount", label: "Net Amount (الصافي)", required: false },
 ];
 
 export default function ImportClient() {
@@ -66,7 +71,7 @@ export default function ImportClient() {
             // Auto-detect mapping from headers
             const autoMap: Record<string, string> = {};
             const headers = data.headers as string[];
-            for (const field of REQUIRED_FIELDS) {
+            for (const field of FIELD_DEFINITIONS) {
                 // Try exact match first
                 const exact = headers.find(
                     (h) => h.toLowerCase().replace(/\s+/g, "") === field.key.toLowerCase()
@@ -86,6 +91,11 @@ export default function ImportClient() {
                     if (field.key === "checkouts48h") return hl.includes("departure") || hl.includes("checkout") || hl.includes("check-out");
                     if (field.key === "guestMessagesCount") return hl.includes("guest") && hl.includes("message");
                     if (field.key === "bookingMessagesCount") return hl.includes("booking") && hl.includes("message");
+                    if (field.key === "grossAmount") return hl.includes("gross") || hl.includes("total") || hl.includes("room revenue");
+                    if (field.key === "commissionAmount") return hl.includes("commission") || hl.includes("payout fee");
+                    if (field.key === "taxAmount") return hl.includes("tax");
+                    if (field.key === "otherFeesAmount") return hl.includes("fee") || hl.includes("service charge");
+                    if (field.key === "netAmount") return hl.includes("net") || hl.includes("payout");
                     return false;
                 });
                 if (partial) autoMap[field.key] = partial;
@@ -213,7 +223,7 @@ export default function ImportClient() {
                             🔗 Step 2: Map Columns
                         </h2>
                         <div className="grid gap-3 sm:grid-cols-2">
-                            {REQUIRED_FIELDS.map((field) => (
+                            {FIELD_DEFINITIONS.map((field) => (
                                 <div key={field.key}>
                                     <label className="mb-1 block text-sm font-medium">
                                         {field.label}

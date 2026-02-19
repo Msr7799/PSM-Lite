@@ -320,6 +320,11 @@ model ChannelOpsSnapshot {
   checkouts48h         Int @default(0)
   guestMessagesCount   Int @default(0)
   bookingMessagesCount Int @default(0)
+  grossAmount          Decimal? @db.Decimal(14, 3)
+  commissionAmount     Decimal? @db.Decimal(14, 3)
+  taxAmount            Decimal? @db.Decimal(14, 3)
+  otherFeesAmount      Decimal? @db.Decimal(14, 3)
+  netAmount            Decimal? @db.Decimal(14, 3)
 
   capturedAt DateTime @default(now())
 
