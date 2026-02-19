@@ -14,6 +14,7 @@ import {
     Globe,
     Receipt,
     LogOut,
+    Bot,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/routing";
@@ -61,6 +62,7 @@ export function AppSidebar() {
         { href: "/dashboard", label: t("nav_dashboard"), icon: LayoutDashboard },
         { href: "/units", label: t("nav_units"), icon: Building2 },
         { href: "/calendar", label: t("nav_calendar"), icon: CalendarDays },
+        { href: "/simsar", label: "سمسار", icon: Bot },
     ];
 
     const operationsItems = [

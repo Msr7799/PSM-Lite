@@ -233,5 +233,9 @@
   "back": "Back",
   "no_rate": "No rate set",
   "operations": "Operations",
-  "night": "night"
+  "night": "night",
+  "simsar": {
+    "simsar": "Simsar",
+    "back": "Back"
+  }
 }
