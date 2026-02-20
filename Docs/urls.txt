@@ -1,0 +1,4 @@
+https://agodahomeshelp.zendesk.com/hc/en-us
+https://agodahomeshelp.zendesk.com/api/v2/help_center/articles.json?page=1&per_page=30
+https://agodapropertypartnerhelp.zendesk.com/hc/en-us
+https://agodapropertypartnerhelp.zendesk.com/api/v2/help_center/articles.json?page=1&per_page=30
