@@ -40,8 +40,9 @@ function parseDateTime(v: string): Date | null {
   const isUtc = m[7] === "Z";
   return isUtc ? new Date(Date.UTC(y, mo, d, hh, mm, ss)) : new Date(y, mo, d, hh, mm, ss);
 }
-
+// المعادلة التي تُستخدم لفصل الأسطر الطويلة في ملفical
 function unfoldLines(icsText: string): string[] {
+
   // RFC5545 line folding: lines that start with space/tab are continuations
   const raw = icsText.replace(/\r\n/g, "\n").split("\n");
   const out: string[] = [];
@@ -55,7 +56,7 @@ function unfoldLines(icsText: string): string[] {
   }
   return out;
 }
-
+// المعادلة التي تُستخدم لتحليل كتلة الحدث في ملفical
 function parseEventBlock(lines: string[]): ParsedEvent | null {
   const fields: Record<string, { value: string; params: Record<string, string> }> = {};
 

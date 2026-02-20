@@ -49,3 +49,4 @@ next-env.d.ts
 myData/*
 DATA.HTML*
 HOTEL_REPORT.md*
+metadata.json
