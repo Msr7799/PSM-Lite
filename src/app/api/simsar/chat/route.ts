@@ -1,19 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSimsarConfig, DEFAULT_SYSTEM_PROMPT } from '@/lib/simsar/config';
 import { getPropertyContext, formatContextForAI } from '@/lib/simsar/context-provider';
+import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-interface Message {
+interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
+interface Attachment {
+  filename: string;
+  type: string;
+  size: number;
+  extractedText: string;
+  imageBase64?: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { messages, stream = true } = await request.json();
-    
+    const {
+      messages,
+      stream = true,
+      modelId,
+      conversationId,
+      attachments,
+    } = await request.json();
+
     const config = getSimsarConfig();
     if (!config) {
       return NextResponse.json(
@@ -22,22 +37,81 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Override model if specified
+    const activeModel = modelId || config.model;
+
     // Get property context
     const context = await getPropertyContext();
     const contextText = formatContextForAI(context);
 
+    // Build attachment context if any
+    let attachmentContext = '';
+    if (attachments && attachments.length > 0) {
+      attachmentContext = '\n\n---\n\n📎 **ملفات مرفقة:**\n';
+      for (const att of attachments as Attachment[]) {
+        attachmentContext += `\n### ملف: ${att.filename} (${(att.size / 1024).toFixed(1)} KB)\n`;
+        attachmentContext += att.extractedText + '\n';
+      }
+    }
+
     // Build messages with system prompt and context
-    const systemMessage: Message = {
+    const systemMessage: ChatMessage = {
       role: 'system',
-      content: `${DEFAULT_SYSTEM_PROMPT}\n\n---\n\n${contextText}`,
+      content: `${DEFAULT_SYSTEM_PROMPT}\n\n---\n\n${contextText}${attachmentContext}`,
     };
 
-    const allMessages: Message[] = [systemMessage, ...messages];
+    const allMessages: ChatMessage[] = [systemMessage, ...messages];
+
+    // Save user message to DB if conversationId is provided
+    let convId = conversationId;
+    const lastUserMsg = messages[messages.length - 1];
+
+    if (convId && lastUserMsg?.role === 'user') {
+      try {
+        await prisma.simsarMessage.create({
+          data: {
+            conversationId: convId,
+            role: 'user',
+            content: lastUserMsg.content,
+            attachments: attachments && attachments.length > 0
+              ? attachments.map((a: Attachment) => ({
+                filename: a.filename,
+                type: a.type,
+                size: a.size,
+              }))
+              : undefined,
+          },
+        });
+
+        // Update conversation
+        await prisma.simsarConversation.update({
+          where: { id: convId },
+          data: {
+            modelId: activeModel,
+            updatedAt: new Date(),
+            // Auto-generate title from first message
+            ...(messages.length === 1
+              ? { title: lastUserMsg.content.slice(0, 80) }
+              : {}),
+          },
+        });
+      } catch (error) {
+        console.error('Error saving user message:', error);
+      }
+    }
 
     if (stream) {
-      return streamResponse(config, allMessages);
+      return streamResponse(
+        { ...config, model: activeModel },
+        allMessages,
+        convId
+      );
     } else {
-      return nonStreamResponse(config, allMessages);
+      return nonStreamResponse(
+        { ...config, model: activeModel },
+        allMessages,
+        convId
+      );
     }
   } catch (error) {
     console.error('Simsar API error:', error);
@@ -48,7 +122,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function streamResponse(config: ReturnType<typeof getSimsarConfig>, messages: Message[]) {
+async function streamResponse(
+  config: ReturnType<typeof getSimsarConfig> & { model: string },
+  messages: ChatMessage[],
+  conversationId?: string
+) {
   if (!config) throw new Error('Config not found');
 
   const encoder = new TextEncoder();
@@ -61,7 +139,6 @@ async function streamResponse(config: ReturnType<typeof getSimsarConfig>, messag
         let body: string;
 
         if (config.provider === 'huggingface') {
-          // Use new HuggingFace Router endpoint (OpenAI-compatible)
           apiUrl = 'https://router.huggingface.co/v1/chat/completions';
           headers = {
             'Authorization': `Bearer ${config.apiKey}`,
@@ -71,7 +148,7 @@ async function streamResponse(config: ReturnType<typeof getSimsarConfig>, messag
             model: config.model,
             messages,
             stream: true,
-            max_tokens: 2048,
+            max_tokens: 4096,
           });
         } else if (config.provider === 'openrouter') {
           apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
@@ -84,7 +161,7 @@ async function streamResponse(config: ReturnType<typeof getSimsarConfig>, messag
             model: config.model,
             messages,
             stream: true,
-            max_tokens: 2048,
+            max_tokens: 4096,
           });
         } else if (config.provider === 'google') {
           apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:streamGenerateContent?alt=sse&key=${config.apiKey}`;
@@ -94,7 +171,7 @@ async function streamResponse(config: ReturnType<typeof getSimsarConfig>, messag
               role: m.role === 'assistant' ? 'model' : m.role === 'system' ? 'user' : 'user',
               parts: [{ text: m.content }],
             })),
-            generationConfig: { maxOutputTokens: 2048 },
+            generationConfig: { maxOutputTokens: 4096 },
           });
         } else {
           throw new Error('Unsupported provider');
@@ -116,6 +193,7 @@ async function streamResponse(config: ReturnType<typeof getSimsarConfig>, messag
 
         const decoder = new TextDecoder();
         let buffer = '';
+        let fullContent = '';
 
         while (true) {
           const { done, value } = await reader.read();
@@ -141,12 +219,28 @@ async function streamResponse(config: ReturnType<typeof getSimsarConfig>, messag
                 }
 
                 if (content) {
+                  fullContent += content;
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
                 }
               } catch {
                 // Skip invalid JSON
               }
             }
+          }
+        }
+
+        // Save assistant message to DB
+        if (conversationId && fullContent) {
+          try {
+            await prisma.simsarMessage.create({
+              data: {
+                conversationId,
+                role: 'assistant',
+                content: fullContent,
+              },
+            });
+          } catch (error) {
+            console.error('Error saving assistant message:', error);
           }
         }
 
@@ -169,7 +263,11 @@ async function streamResponse(config: ReturnType<typeof getSimsarConfig>, messag
   });
 }
 
-async function nonStreamResponse(config: ReturnType<typeof getSimsarConfig>, messages: Message[]) {
+async function nonStreamResponse(
+  config: ReturnType<typeof getSimsarConfig> & { model: string },
+  messages: ChatMessage[],
+  conversationId?: string
+) {
   if (!config) throw new Error('Config not found');
 
   let apiUrl: string;
@@ -177,7 +275,6 @@ async function nonStreamResponse(config: ReturnType<typeof getSimsarConfig>, mes
   let body: string;
 
   if (config.provider === 'huggingface') {
-    // Use new HuggingFace Router endpoint (OpenAI-compatible)
     apiUrl = 'https://router.huggingface.co/v1/chat/completions';
     headers = {
       'Authorization': `Bearer ${config.apiKey}`,
@@ -186,7 +283,7 @@ async function nonStreamResponse(config: ReturnType<typeof getSimsarConfig>, mes
     body = JSON.stringify({
       model: config.model,
       messages,
-      max_tokens: 2048,
+      max_tokens: 4096,
     });
   } else if (config.provider === 'openrouter') {
     apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
@@ -197,7 +294,7 @@ async function nonStreamResponse(config: ReturnType<typeof getSimsarConfig>, mes
     body = JSON.stringify({
       model: config.model,
       messages,
-      max_tokens: 2048,
+      max_tokens: 4096,
     });
   } else {
     throw new Error('Unsupported provider for non-streaming');
@@ -216,6 +313,21 @@ async function nonStreamResponse(config: ReturnType<typeof getSimsarConfig>, mes
 
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content || '';
+
+  // Save assistant message to DB
+  if (conversationId && content) {
+    try {
+      await prisma.simsarMessage.create({
+        data: {
+          conversationId,
+          role: 'assistant',
+          content,
+        },
+      });
+    } catch (error) {
+      console.error('Error saving assistant message:', error);
+    }
+  }
 
   return NextResponse.json({ content });
 }

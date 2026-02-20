@@ -316,10 +316,10 @@ model ChannelOpsSnapshot {
   statusText   String?
   locationText String?
 
-  checkins48h          Int @default(0)
-  checkouts48h         Int @default(0)
-  guestMessagesCount   Int @default(0)
-  bookingMessagesCount Int @default(0)
+  checkins48h          Int      @default(0)
+  checkouts48h         Int      @default(0)
+  guestMessagesCount   Int      @default(0)
+  bookingMessagesCount Int      @default(0)
   grossAmount          Decimal? @db.Decimal(14, 3)
   commissionAmount     Decimal? @db.Decimal(14, 3)
   taxAmount            Decimal? @db.Decimal(14, 3)
@@ -376,4 +376,34 @@ model Note {
 
   @@index([unitId, createdAt])
   @@index([isResolved, priority])
+}
+
+// ─── Simsar AI Chat History ──────────────────────────
+
+model SimsarConversation {
+  id        String   @id @default(cuid())
+  title     String? // Auto-generated from first user message
+  modelId   String? // Which AI model was used
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages SimsarMessage[]
+
+  @@index([createdAt])
+}
+
+model SimsarMessage {
+  id             String             @id @default(cuid())
+  conversationId String
+  conversation   SimsarConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role    String // 'user' | 'assistant' | 'system'
+  content String @db.Text
+
+  // File attachments: [{filename, type, size, extractedText}]
+  attachments Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
 }

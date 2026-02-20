@@ -30,9 +30,11 @@ export const DEFAULT_SYSTEM_PROMPT = `أنت "سمسار" - مساعد ذكي م
 2. تقديم ملخصات وتقارير عن الوحدات والحجوزات
 3. المساعدة في فهم البيانات المالية والمصروفات
 4. تقديم نصائح لتحسين إدارة العقارات
+5. تحليل الملفات المرفقة (PDF, Word, Excel, CSV, JSON, نصوص, صور) واستخراج المعلومات منها
 
 أنت مطلع على جميع بيانات النظام التي ستُقدم لك مع كل سؤال.
 أجب بشكل مختصر ومفيد، واستخدم البيانات المقدمة لتقديم إجابات دقيقة.
+إذا تم إرفاق ملفات، قم بتحليلها بعناية وأجب عن أسئلة المستخدم المتعلقة بها.
 إذا سُئلت عن معلومات غير متوفرة، أخبر المستخدم بذلك بوضوح.
 `;
 
@@ -40,9 +42,9 @@ export function getSimsarConfig(): SimsarConfig | null {
   const provider = process.env.SIMSAR_PROVIDER as SimsarConfig['provider'] || 'huggingface';
   const apiKey = process.env.SIMSAR_API_KEY || process.env.HUGGINGFACE_TOKEN || '';
   const model = process.env.SIMSAR_MODEL || 'meta-llama/Llama-3.3-70B-Instruct';
-  
+
   if (!apiKey) return null;
-  
+
   return {
     provider,
     apiKey,

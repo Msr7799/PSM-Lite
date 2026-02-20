@@ -1,16 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getSimsarConfig } from '@/lib/simsar/config';
+import { getModels, getLastFetchTime } from '@/lib/simsar/models-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-interface Model {
-  id: string;
-  name: string;
-  owned_by?: string;
-}
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const config = getSimsarConfig();
     if (!config) {
@@ -20,36 +15,23 @@ export async function GET() {
       );
     }
 
+    const forceRefresh = request.nextUrl.searchParams.get('refresh') === 'true';
+
     if (config.provider === 'huggingface') {
-      // Fetch models from HuggingFace Router
-      const response = await fetch('https://router.huggingface.co/v1/models', {
-        headers: {
-          'Authorization': `Bearer ${config.apiKey}`,
-        },
-      });
+      const models = await getModels(config.apiKey, forceRefresh);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to fetch models: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      const models: Model[] = data.data?.map((m: { id: string; owned_by?: string }) => ({
-        id: m.id,
-        name: m.id.split('/').pop() || m.id,
-        owned_by: m.owned_by,
-      })) || [];
-
-      return NextResponse.json({ 
+      return NextResponse.json({
         models,
         count: models.length,
         provider: 'huggingface',
         currentModel: config.model,
+        lastFetched: getLastFetchTime(),
+        cached: !forceRefresh,
       });
     }
 
     // Default response for other providers
-    return NextResponse.json({ 
+    return NextResponse.json({
       models: [],
       provider: config.provider,
       currentModel: config.model,
