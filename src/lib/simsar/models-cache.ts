@@ -5,6 +5,7 @@ export interface ModelInfo {
     name: string;
     owned_by?: string;
     isMultimodal?: boolean;
+    supportsMcp?: boolean;
 }
 
 interface ModelsCache {
@@ -25,6 +26,15 @@ const MULTIMODAL_PATTERNS = [
 function isMultimodal(modelId: string): boolean {
     const lower = modelId.toLowerCase();
     return MULTIMODAL_PATTERNS.some(p => lower.includes(p));
+}
+
+const MCP_CAPABLE_PATTERNS = [
+    'llama-3', 'qwen2.5', 'gemini', 'claude-3', 'gpt-4', 'mixtral', 'deepseek', 'gpt-3.5', 'nova'
+];
+
+function supportsMcp(modelId: string): boolean {
+    const lower = modelId.toLowerCase();
+    return MCP_CAPABLE_PATTERNS.some(p => lower.includes(p));
 }
 
 export async function getModels(apiKey: string, forceRefresh = false): Promise<ModelInfo[]> {
@@ -51,6 +61,7 @@ export async function getModels(apiKey: string, forceRefresh = false): Promise<M
             name: m.id.split('/').pop() || m.id,
             owned_by: m.owned_by,
             isMultimodal: isMultimodal(m.id),
+            supportsMcp: supportsMcp(m.id),
         }));
 
         // Sort: put popular models first

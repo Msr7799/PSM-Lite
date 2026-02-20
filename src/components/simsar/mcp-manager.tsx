@@ -147,8 +147,17 @@ export function McpManager() {
                             <FileJson className="h-4 w-4" />
                             {rawMode ? "View Visual Manager" : "View raw config"}
                         </button>
-                        <button className="flex items-center gap-1.5 text-xs text-neutral-300 hover:text-white transition-colors bg-neutral-800 px-3 py-1.5 rounded-md">
-                            <RefreshCw className="h-3.5 w-3.5" />
+                        <button
+                            onClick={() => {
+                                const btn = document.getElementById('refresh-btn');
+                                if (btn) {
+                                    btn.classList.add('animate-spin');
+                                    setTimeout(() => btn.classList.remove('animate-spin'), 1000);
+                                }
+                            }}
+                            className="flex items-center gap-1.5 text-xs text-neutral-300 hover:text-white transition-colors bg-neutral-800 px-3 py-1.5 rounded-md"
+                        >
+                            <RefreshCw id="refresh-btn" className="h-3.5 w-3.5" />
                             Refresh
                         </button>
                     </div>
@@ -234,33 +243,37 @@ export function McpManager() {
 
                                         {/* Tools list */}
                                         <div className="space-y-6">
-                                            {mcpTools[selectedServer]?.map((tool, idx) => (
-                                                <div key={tool.name} className="flex gap-4">
-                                                    <div className="flex-1">
-                                                        <h3 className="text-[15px] font-semibold text-neutral-200 mb-1.5 flex items-center gap-2">
-                                                            {idx + 1}. {tool.name}
-                                                        </h3>
-                                                        <p className="text-sm text-neutral-400 leading-relaxed pr-8">
-                                                            {tool.description}
-                                                        </p>
-                                                    </div>
-                                                    <div>
-                                                        <button
-                                                            className={cn(
-                                                                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-                                                                "bg-blue-500"
-                                                            )}
-                                                        >
-                                                            <span
+                                            {mcpTools[selectedServer]?.map((tool, idx) => {
+                                                const srvrConf = (config.mcpServers as any)[selectedServer];
+                                                const isEnabled = !srvrConf?.disabled;
+                                                return (
+                                                    <div key={tool.name} className={cn("flex gap-4 transition-opacity", !isEnabled && "opacity-50")}>
+                                                        <div className="flex-1">
+                                                            <h3 className="text-[15px] font-semibold text-neutral-200 mb-1.5 flex items-center gap-2">
+                                                                {idx + 1}. {tool.name}
+                                                            </h3>
+                                                            <p className="text-sm text-neutral-400 leading-relaxed pr-8">
+                                                                {tool.description}
+                                                            </p>
+                                                        </div>
+                                                        <div>
+                                                            <button
                                                                 className={cn(
-                                                                    "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
-                                                                    "translate-x-4"
+                                                                    "relative inline-flex h-5 w-9 shrink-0 cursor-not-allowed items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                                                                    isEnabled ? "bg-blue-500" : "bg-neutral-700"
                                                                 )}
-                                                            />
-                                                        </button>
+                                                            >
+                                                                <span
+                                                                    className={cn(
+                                                                        "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                                                                        isEnabled ? "translate-x-4" : "translate-x-0"
+                                                                    )}
+                                                                />
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                             {!mcpTools[selectedServer] && (
                                                 <p className="text-sm text-neutral-500">No tools available for this server in the visual preview.</p>
                                             )}

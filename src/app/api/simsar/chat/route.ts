@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSimsarConfig, DEFAULT_SYSTEM_PROMPT } from '@/lib/simsar/config';
 import { getPropertyContext, formatContextForAI } from '@/lib/simsar/context-provider';
+import { searchDocs, formatDocsForAI } from '@/lib/simsar/docs-provider';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -54,17 +55,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Search docs manually using user's latest message to build related external context string
+    const lastUserMsg = messages[messages.length - 1];
+    let externalDocsContext = '';
+    if (lastUserMsg && lastUserMsg.role === 'user' && lastUserMsg.content) {
+      const docs = await searchDocs(lastUserMsg.content);
+      externalDocsContext = formatDocsForAI(docs);
+    }
+
     // Build messages with system prompt and context
     const systemMessage: ChatMessage = {
       role: 'system',
-      content: `${DEFAULT_SYSTEM_PROMPT}\n\n---\n\n${contextText}${attachmentContext}`,
+      content: `${DEFAULT_SYSTEM_PROMPT}\n\n---\n\n${contextText}${attachmentContext}${externalDocsContext}`,
     };
 
     const allMessages: ChatMessage[] = [systemMessage, ...messages];
 
     // Save user message to DB if conversationId is provided
     let convId = conversationId;
-    const lastUserMsg = messages[messages.length - 1];
 
     if (convId && lastUserMsg?.role === 'user') {
       try {

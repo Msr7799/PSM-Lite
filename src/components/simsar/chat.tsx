@@ -5,7 +5,7 @@ import {
   Send, Bot, User, Copy, Check, RefreshCw, Trash2,
   Paperclip, X, MessageSquarePlus, ChevronDown,
   History, FileText, Image as ImageIcon, FileSpreadsheet,
-  File, Search, Loader2, ArrowRight
+  File, Search, Loader2, ArrowRight, Plug
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -43,6 +43,7 @@ interface ModelInfo {
   name: string;
   owned_by?: string;
   isMultimodal?: boolean;
+  supportsMcp?: boolean;
 }
 
 /* ────────── Helpers ────────── */
@@ -567,6 +568,11 @@ export function SimsarChat() {
                           {m.isMultimodal && (
                             <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 shrink-0">
                               vision
+                            </span>
+                          )}
+                          {m.supportsMcp && (
+                            <span className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 shrink-0" title="يدعم أدوات MCP">
+                              <Plug className="h-2.5 w-2.5" /> mcp
                             </span>
                           )}
                           {selectedModel === m.id && <Check className="h-3 w-3 text-amber-500 shrink-0" />}
