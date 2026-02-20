@@ -5,10 +5,11 @@ import {
   Send, Bot, User, Copy, Check, RefreshCw, Trash2,
   Paperclip, X, MessageSquarePlus, ChevronDown,
   History, FileText, Image as ImageIcon, FileSpreadsheet,
-  File, Search, Loader2,
+  File, Search, Loader2, ArrowRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 /* ────────── Types ────────── */
 interface Message {
@@ -387,7 +388,7 @@ export function SimsarChat() {
 
   /* ────────── RENDER ────────── */
   return (
-    <div className="flex h-[calc(100vh-120px)] bg-background rounded-lg border overflow-hidden">
+    <div className="flex h-full bg-background rounded-lg border overflow-hidden">
       {/* ────── Sidebar: History ────── */}
       <div
         className={cn(
@@ -477,6 +478,16 @@ export function SimsarChat() {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b bg-gradient-to-r from-amber-500/10 to-orange-500/10">
           <div className="flex items-center gap-3">
+            <Link href="/">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 w-9 p-0 rounded-full hover:bg-amber-500/20"
+                title="الرجوع للقائمة"
+              >
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
             <Button
               variant="ghost"
               size="sm"
