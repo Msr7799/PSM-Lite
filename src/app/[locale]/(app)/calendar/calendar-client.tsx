@@ -31,6 +31,14 @@ type FeedEntry = {
   lastError: string | null;
 };
 
+type HolidayEntry = {
+  id: string;
+  title: string;
+  country: string;
+  startDate: string;
+  endDate: string;
+};
+
 type DayInfo = {
   date: Date;
   dateStr: string; // YYYY-MM-DD
@@ -38,6 +46,7 @@ type DayInfo = {
   isToday: boolean;
   bookings: { channel: string; summary: string | null }[];
   block: { source: string; reason: string | null } | null;
+  holidays: { title: string; country: string }[];
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -77,6 +86,7 @@ function getMonthDays(year: number, month: number): DayInfo[][] {
       isToday: fmtDate(d) === todayStr,
       bookings: [],
       block: null,
+      holidays: [],
     });
   }
 
@@ -90,6 +100,7 @@ function getMonthDays(year: number, month: number): DayInfo[][] {
       isToday: fmtDate(d) === todayStr,
       bookings: [],
       block: null,
+      holidays: [],
     });
     if (week.length === 7) {
       weeks.push(week);
@@ -109,6 +120,7 @@ function getMonthDays(year: number, month: number): DayInfo[][] {
         isToday: fmtDate(d) === todayStr,
         bookings: [],
         block: null,
+        holidays: [],
       });
     }
     weeks.push(week);
@@ -168,6 +180,7 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
   const [bookings, setBookings] = useState<BookingEvent[]>([]);
   const [dateBlocks, setDateBlocks] = useState<DateBlockEntry[]>([]);
   const [feeds, setFeeds] = useState<FeedEntry[]>([]);
+  const [holidays, setHolidays] = useState<HolidayEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -196,6 +209,7 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
       setBookings(data.bookings ?? []);
       setDateBlocks(data.dateBlocks ?? []);
       setFeeds(data.feeds ?? []);
+      setHolidays(data.holidays ?? []);
     } catch (e) {
       setMsg("Failed to load calendar");
     } finally {
@@ -209,6 +223,16 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
   }, [loadCalendar]);
 
   // ─── Build month grids with booking/block data ──────────────
+  const holidayRanges = useMemo(() => {
+    return holidays.map((h) => ({
+      id: h.id,
+      title: h.title,
+      country: h.country,
+      start: new Date(h.startDate).getTime(),
+      end: new Date(h.endDate).getTime(),
+    }));
+  }, [holidays]);
+
   const month1Weeks = useMemo(() => {
     const weeks = getMonthDays(year, month);
     // Populate bookings and blocks
@@ -230,10 +254,15 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
             day.block = { source: bl.source, reason: bl.reason };
           }
         }
+        for (const hol of holidayRanges) {
+          if (hol.start <= dayMs && dayMs < hol.end) {
+            day.holidays.push({ title: hol.title, country: hol.country });
+          }
+        }
       }
     }
     return weeks;
-  }, [year, month, bookings, dateBlocks]);
+  }, [year, month, bookings, dateBlocks, holidayRanges]);
 
   const month2Year = month === 11 ? year + 1 : year;
   const month2Month = (month + 1) % 12;
@@ -256,10 +285,15 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
             day.block = { source: bl.source, reason: bl.reason };
           }
         }
+        for (const hol of holidayRanges) {
+          if (hol.start <= dayMs && dayMs < hol.end) {
+            day.holidays.push({ title: hol.title, country: hol.country });
+          }
+        }
       }
     }
     return weeks;
-  }, [month2Year, month2Month, bookings, dateBlocks]);
+  }, [month2Year, month2Month, bookings, dateBlocks, holidayRanges]);
 
   // ─── Navigation ─────────────────────────────────────────────
   function prevMonth() {
@@ -379,6 +413,7 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
                 const isSelected = selected.has(day.dateStr);
                 const hasBooking = day.bookings.length > 0;
                 const hasBlock = !!day.block;
+                const hasHoliday = day.holidays.length > 0;
                 const isUnavailable = hasBooking || hasBlock;
 
                 // Determine background
@@ -390,6 +425,8 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
                   bgClass = CHANNEL_BG[ch] ?? "bg-rose-100 dark:bg-rose-950/60";
                 } else if (hasBlock) {
                   bgClass = "bg-amber-50 dark:bg-amber-950/40";
+                } else if (hasHoliday) {
+                  bgClass = "bg-fuchsia-50 dark:bg-fuchsia-950/40";
                 }
 
                 return (
@@ -435,6 +472,14 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
                           {day.block!.source === "MANUAL"
                             ? (isRtl ? "مغلق" : "CLOSED")
                             : day.block!.source.slice(0, 3)}
+                        </span>
+                      )}
+                      {hasHoliday && !hasBooking && !hasBlock && (
+                        <span
+                          className="inline-block rounded-sm bg-fuchsia-500 px-1 py-px text-[8px] font-bold text-white leading-tight"
+                          title={day.holidays.map((h) => h.title).join(", ")}
+                        >
+                          {isRtl ? "عطلة" : "Holiday"}
                         </span>
                       )}
                     </div>
@@ -604,6 +649,10 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
           <span className="h-3 w-3 rounded-sm border-2 border-blue-500" />
           {isRtl ? "محدد" : "Selected"}
         </div>
+        <div className="flex items-center gap-1 text-[10px] text-slate-500">
+          <span className="h-3 w-3 rounded-sm bg-fuchsia-100 dark:bg-fuchsia-950" />
+          {isRtl ? "عطلات رسمية" : "Public Holiday"}
+        </div>
       </div>
 
       {/* Calendar grids */}
@@ -627,7 +676,7 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
       )}
 
       {/* Blocked dates list */}
-      {dateBlocks.length > 0 && (
+      {(dateBlocks.length > 0 || holidays.length > 0) && (
         <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
           <h3 className="text-sm font-semibold mb-2">
             {isRtl ? "التواريخ المغلقة" : "Blocked Dates"}
@@ -650,6 +699,23 @@ export default function CalendarClient({ units }: { units: Unit[] }) {
                 {bl.reason && (
                   <span className="text-[10px] text-slate-500">{bl.reason}</span>
                 )}
+              </span>
+            ))}
+            {holidays.map((hol) => (
+              <span
+                key={hol.id}
+                className="inline-flex items-center gap-1 rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-2 py-1 text-xs dark:border-fuchsia-800 dark:bg-fuchsia-950"
+              >
+                <span className="font-medium">
+                  {new Date(hol.startDate).toLocaleDateString(isRtl ? "ar" : "en", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+                <span className="rounded-full bg-fuchsia-500 px-1 py-px text-[8px] font-bold text-white">
+                  {hol.country}
+                </span>
+                <span className="text-[10px] text-slate-500">{hol.title}</span>
               </span>
             ))}
           </div>

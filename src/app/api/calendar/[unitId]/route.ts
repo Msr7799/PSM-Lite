@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getHolidayEvents } from "@/lib/holidays";
 
 /**
  * GET /api/calendar/[unitId]?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -21,7 +22,7 @@ export async function GET(
   const from = new Date(fromStr + "T00:00:00Z");
   const to = new Date(toStr + "T23:59:59Z");
 
-  const [bookings, dateBlocks, feeds] = await Promise.all([
+  const [bookings, dateBlocks, feeds, holidays] = await Promise.all([
     prisma.booking.findMany({
       where: {
         unitId,
@@ -63,7 +64,8 @@ export async function GET(
         lastError: true,
       },
     }),
+    getHolidayEvents(from, to),
   ]);
 
-  return NextResponse.json({ bookings, dateBlocks, feeds });
+  return NextResponse.json({ bookings, dateBlocks, feeds, holidays });
 }
